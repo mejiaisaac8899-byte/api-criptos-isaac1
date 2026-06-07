@@ -1,43 +1,53 @@
 const express = require('express');
-const cors = require('cors'); // <-- 1. Importamos CORS
+const cors = require('cors');
 const app = express();
 
-// <-- 2. Activamos CORS para que tu HTML pueda leer la API sin ser bloqueado
+// Activamos CORS para permitir conexiones desde cualquier frontend externo
 app.use(cors()); 
 
-const PORT = process.env.PORT || 3000;
+// Middleware crucial para recibir los bytes puros (JPEG binario) de la cámara
+app.use(express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
-const criptosSoportadas = {
-    'bitcoin': 'BTCUSDT',
-    'ethereum': 'ETHUSDT',
-    'usdt': 'USDCUSDT' 
-};
+// Variables globales en memoria para la última captura y control de flujo
+let ultimaFotoVenografo = null;
+let contadorFotos = 0;
 
-app.get('/api/precio/:moneda', async (req, res) => {
-    const monedaRequerida = req.params.moneda.toLowerCase();
+// ==========================================
+// ENDPOINTS DEL VENÓGRAFO (ESP32-CAM)
+// ==========================================
 
-    if (!criptosSoportadas[monedaRequerida]) {
-        return res.status(404).json({ error: "Moneda no soportada." });
+// Endpoint para recibir la foto del ESP32 cada 30 segundos
+app.post('/upload', (req, res) => {
+    if (!req.body || !Buffer.isBuffer(req.body)) {
+        console.log(`⚠️ [SERVER] Intento de subida inválido o cuerpo vacío.`);
+        return res.status(400).send('No se recibió un archivo binario válido.');
     }
-
-    const simbolo = criptosSoportadas[monedaRequerida];
-
-    try {
-        // <-- 3. Usamos MEXC (Mismo formato que Binance, pero sin bloqueos de IP)
-        const respuesta = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${simbolo}`);
-        const datos = await respuesta.json();
-
-        res.status(200).json({
-            criptomoneda: monedaRequerida,
-            precio_actual: datos.price
-        });
-
-    } catch (error) {
-        console.log(`[ERROR] Falló la petición: ${error.message}`);
-        res.status(500).json({ error: "Error al consultar el precio." });
-    }
+    
+    contadorFotos++;
+    ultimaFotoVenografo = req.body;
+    
+    // MUESTRA EN CONSOLA DEL SERVIDOR: Notificación en tiempo real
+    const horaActual = new Date().toLocaleTimeString();
+    console.log(`📸 [SERVER] Foto #${contadorFotos} recibida con éxito (${ultimaFotoVenografo.length} bytes) a las ${horaActual}`);
+    
+    res.status(200).send('Imagen guardada exitosamente en Railway');
 });
 
+// Endpoint para renderizar la foto directamente en el navegador
+app.get('/ver-foto', (req, res) => {
+    if (!ultimaFotoVenografo) {
+        return res.status(404).send('<h1>Aún no se ha recibido ninguna foto del Venógrafo</h1><p>Asegúrate de que el ESP32 esté encendido y transmitiendo.</p>');
+    }
+    
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store'); // Evita congelamientos por caché del navegador
+    res.send(ultimaFotoVenografo);
+});
+
+// ==========================================
+// INICIO DEL SERVIDOR
+// ==========================================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`¡Backend encendido en el puerto ${PORT}!`);
+    console.log(`🚀 Servidor del Venógrafo encendido y escuchando en el puerto ${PORT}`);
 });
