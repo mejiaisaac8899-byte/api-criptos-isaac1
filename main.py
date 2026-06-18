@@ -77,25 +77,25 @@ def segmentar_y_limpiar_dedo(pil_image):
 # ==================================================
 class ExtractorBiometricoONNX:
     def __init__(self, model_path="resnet_venas_fp16.onnx"):
-        # Cargamos el archivo PDF matemático (¡No usa PyTorch!)
         self.ort_session = ort.InferenceSession(model_path)
         self.input_name = self.ort_session.get_inputs()[0].name
 
     def preprocess(self, pil_image):
-        # Hacemos manualmente lo que hacía torchvision (Reducir RAM a 0)
         img = pil_image.resize((224, 224), Image.BILINEAR)
         img_arr = np.array(img).astype(np.float32) / 255.0
         img_arr = img_arr.transpose(2, 0, 1) # HWC a CHW
         mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
         std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
         img_arr = (img_arr - mean) / std
-        return np.expand_dims(img_arr, axis=0) # Agregar batch
+        
+        # 🔴 EL TRUCO MAGISTRAL: Convertimos la matriz a Float16 para que encaje
+        tensor_final = np.expand_dims(img_arr, axis=0)
+        return tensor_final.astype(np.float16)
 
     def extraer_embedding(self, pil_image):
         if pil_image is None: return None
         try:
             tensor_entrada = self.preprocess(pil_image)
-            # Ejecutamos la IA comprimida a la velocidad de la luz
             embedding = self.ort_session.run(None, {self.input_name: tensor_entrada})[0].flatten()
             return embedding / np.linalg.norm(embedding)
         except Exception as e:
@@ -230,3 +230,4 @@ with gr.Blocks(title="Terminal Fintech - ESP32", theme=gr.themes.Default()) as i
 
 # Conectamos la Interfaz web al mismo servidor donde entra el ESP32
 app = gr.mount_gradio_app(app, interfaz, path="/")
+    
