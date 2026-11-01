@@ -398,7 +398,7 @@ class VascularBiometricEngine:
 
         q_score = q_info["quality"]
         if not q_info["valid"]:
-            return f"🟡 BAJA CALIDAD SEÑAL IR ({q_score}%): Ajuste el dedo en el sensor.", probe_vis_map, {"authenticated": False}
+            return "🟡 LECTURA NO VÁLIDA: Ajuste la posición del dedo en el sensor.", probe_vis_map, {"authenticated": False}
 
         template_files = sorted(glob.glob(os.path.join(client_dir, "*.npy")))
         if not template_files:
@@ -443,6 +443,6 @@ class VascularBiometricEngine:
 
         if top_k_score >= VASCULAR_THRESHOLD and max_single_match >= (VASCULAR_THRESHOLD + 0.05):
             metrics["authenticated"] = True
-            return f"🟢 IDENTIDAD CONFIRMADA ({porcentaje}% - Máx: {max_porcentaje}%)", probe_vis_map, metrics
+            return "🟢 IDENTIDAD CONFIRMADA", probe_vis_map, metrics
         else:
-            return f"🔴 FRAUDE DETECTADO (Dedo no coincide: {porcentaje}%)", probe_vis_map, metrics
+            return "🔴 IDENTIDAD NO COINCIDE", probe_vis_map, metrics
