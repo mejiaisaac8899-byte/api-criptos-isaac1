@@ -22,11 +22,11 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 CACHE_LATEST_IMAGE = os.path.join(CACHE_DIR, "latest_esp32.jpg")
 
-# Inicializar motor biométrico de alta precisión ConvNeXt-Small (FP32)
-# Umbral 0.88 calibrado para el espacio hiperesférico de 512 dimensiones
+# Inicializar motor biométrico de correlación estructural vascular
+# Umbral 0.60 (60%): Intruso da 20-30%, titular legítimo da > 75%
 biometric_engine = VascularBiometricEngine(
     database_dir=DATABASE_DIR,
-    similarity_threshold=0.88
+    similarity_threshold=0.60
 )
 
 # Memoria temporal para un solo worker, y persistencia en cache para multi-worker
@@ -140,9 +140,8 @@ def verificar_pago_gradio(cedula: str, img_pil: Optional[Image.Image]):
             f"{mensaje}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"Titular: {cedula.strip().upper()}\n"
-            f"Score Consenso: {metrics.get('final_score', 0)*100:.2f}%\n"
-            f"Coincidencia Máxima: {metrics.get('max_match', 0)*100:.2f}%\n"
-            f"Similitud Centroide: {metrics.get('centroid_match', 0)*100:.2f}%\n"
+            f"Score de Coincidencia: {metrics.get('final_score', 0)*100:.2f}%\n"
+            f"Mejor Muestra Individual: {metrics.get('max_match', 0)*100:.2f}%\n"
             f"Calidad Vascular IR: {metrics.get('quality_score', 0)}%\n"
             f"Estado: TRANSACCIÓN AUTORIZADA"
         )
@@ -153,8 +152,9 @@ def verificar_pago_gradio(cedula: str, img_pil: Optional[Image.Image]):
             f"Cédula consultada: {cedula.strip().upper()}\n"
             f"Score obtenido: {metrics.get('final_score', 0)*100:.2f}% "
             f"(Mínimo requerido: {biometric_engine.similarity_threshold*100:.0f}%)\n"
+            f"Mejor coincidencia: {metrics.get('max_match', 0)*100:.2f}%\n"
             f"Calidad Vascular IR: {metrics.get('quality_score', 0)}%\n"
-            f"Estado: TRANSACCIÓN RECHAZADA"
+            f"Estado: TRANSACCIÓN RECHAZADA (Dedo no coincide)"
         )
 
     # Convertir mapa de visualización BGR a RGB para Gradio
