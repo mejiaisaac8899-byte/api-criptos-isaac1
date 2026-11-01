@@ -61,7 +61,7 @@ async def upload_esp32(request: Request):
     except Exception as e:
         print(f"[CACHE ERROR]: No se pudo escribir en disco: {e}")
 
-    print(f"📸 [ESP32] Foto de {len(ultima_foto_bytes)} bytes recibida y almacenada.")
+    print(f"[ESP32] Foto de {len(ultima_foto_bytes)} bytes recibida y almacenada.")
     return Response(content="Imagen recibida exitosamente por el servidor biométrico", media_type="text/plain")
 
 
@@ -202,10 +202,11 @@ def registrar_nuevo_cliente_gradio(cedula: str, img1, img2, img3, img4, img5):
 # =====================================================================
 # 5. INTERFAZ GRÁFICA DE USUARIO (GRADIO)
 # =====================================================================
-with gr.Blocks(title="Terminal Fintech POS - ConvNeXt FP32", theme=gr.themes.Default()) as interfaz:
+with gr.Blocks(title="Terminal Fintech POS - ConvNeXt FP32") as interfaz:
     gr.Markdown(
         "## 🏦 Panel de Control POS Biométrico Vascular\n"
-        "🌐 **Motor Deep Learning:** ConvNeXt-Small (FP32) + SpatialPyramidGeM + Frangi/Gabor."
+        "🌐 **Motor Deep Learning:** ConvNeXt-Small (FP32) + SpatialPyramidGeM + Frangi/Gabor.\n"
+        "💡 *Puedes recibir fotos del ESP32 o pegar imágenes directamente con **Ctrl + V** / subir archivo.*"
     )
 
     with gr.Tabs():
@@ -213,9 +214,13 @@ with gr.Blocks(title="Terminal Fintech POS - ConvNeXt FP32", theme=gr.themes.Def
             with gr.Row():
                 with gr.Column():
                     in_cedula_pago = gr.Textbox(label="1. Cédula de Identidad", placeholder="Ej: V-12345678")
-                    btn_obtener_foto = gr.Button("2. 📸 Extraer foto actual del ESP32", variant="secondary")
-                    img_verificar = gr.Image(type="pil", label="Foto recibida de la terminal", interactive=False)
-                    btn_verificar = gr.Button("3. Autorizar Pago", variant="primary")
+                    btn_obtener_foto = gr.Button("📸 Extraer foto actual del ESP32", variant="secondary")
+                    img_verificar = gr.Image(
+                        type="pil", 
+                        label="Foto a Validar (ESP32 o Haz clic y presiona Ctrl+V para pegar)", 
+                        interactive=True
+                    )
+                    btn_verificar = gr.Button("Validar y Autorizar Pago", variant="primary")
                 with gr.Column():
                     txt_resultado = gr.Textbox(label="Respuesta de Seguridad Bancaria", lines=8)
                     img_vision = gr.Image(label="Segmentación y Mapa Vascular (Frangi + Gabor)")
@@ -231,29 +236,29 @@ with gr.Blocks(title="Terminal Fintech POS - ConvNeXt FP32", theme=gr.themes.Def
             gr.Markdown(
                 "**Procedimiento:**\n"
                 "1. Ingrese la Cédula.\n"
-                "2. Indique al cliente que coloque el dedo en el sensor.\n"
-                "3. Cuando el hardware tome la foto, pulse 'Descargar Muestra 1'. Mueva ligeramente el dedo y capture las siguientes muestras."
+                "2. Cargue las 5 muestras del dedo (puedes pegarlas con **Ctrl + V**, arrastrar fotos desde tu PC, o usar el botón del ESP32).\n"
+                "3. Presione 'Vincular Patrón Vascular a Cédula'."
             )
             in_cedula_registro = gr.Textbox(label="Número de Cédula de Identidad", placeholder="Ej: V-12345678")
 
             with gr.Row():
                 with gr.Column():
-                    btn_get1 = gr.Button("Descargar Muestra 1")
-                    img_reg_1 = gr.Image(type="pil", interactive=False)
+                    btn_get1 = gr.Button("Descargar ESP32 M1", size="sm")
+                    img_reg_1 = gr.Image(type="pil", label="Muestra 1 (Pega con Ctrl+V)", interactive=True)
                 with gr.Column():
-                    btn_get2 = gr.Button("Descargar Muestra 2")
-                    img_reg_2 = gr.Image(type="pil", interactive=False)
+                    btn_get2 = gr.Button("Descargar ESP32 M2", size="sm")
+                    img_reg_2 = gr.Image(type="pil", label="Muestra 2 (Pega con Ctrl+V)", interactive=True)
                 with gr.Column():
-                    btn_get3 = gr.Button("Descargar Muestra 3")
-                    img_reg_3 = gr.Image(type="pil", interactive=False)
+                    btn_get3 = gr.Button("Descargar ESP32 M3", size="sm")
+                    img_reg_3 = gr.Image(type="pil", label="Muestra 3 (Pega con Ctrl+V)", interactive=True)
 
             with gr.Row():
                 with gr.Column():
-                    btn_get4 = gr.Button("Descargar Muestra 4")
-                    img_reg_4 = gr.Image(type="pil", interactive=False)
+                    btn_get4 = gr.Button("Descargar ESP32 M4", size="sm")
+                    img_reg_4 = gr.Image(type="pil", label="Muestra 4 (Pega con Ctrl+V)", interactive=True)
                 with gr.Column():
-                    btn_get5 = gr.Button("Descargar Muestra 5")
-                    img_reg_5 = gr.Image(type="pil", interactive=False)
+                    btn_get5 = gr.Button("Descargar ESP32 M5", size="sm")
+                    img_reg_5 = gr.Image(type="pil", label="Muestra 5 (Pega con Ctrl+V)", interactive=True)
 
             btn_get1.click(fn=obtener_foto_del_esp32, outputs=img_reg_1)
             btn_get2.click(fn=obtener_foto_del_esp32, outputs=img_reg_2)
