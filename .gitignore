@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.cache/
+cache/
+database/
+*.npy
+*.jpg
+*.jpeg
+*.png
+.env
