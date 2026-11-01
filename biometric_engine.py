@@ -43,68 +43,69 @@ class VascularPreprocessor:
 
     def _align_and_crop_roi(self, gray: np.ndarray) -> Optional[np.ndarray]:
         """
-        Corrige la rotación del dedo calculando el eje principal de inercia
-        y extrae la Región de Interés (ROI) vascular interna sin bordes epidérmicos.
+        Aísla el cuerpo del dedo eliminando las fugas de luz infrarroja directa
+        (zonas sobreexpuestas > 210) y la sombra de la carcasa (< 22), y normaliza
+        la orientación para centrar el lecho vascular.
         """
-        # Suavizado fuerte para ignorar ruido del OV2640 en la máscara
-        blur = cv2.GaussianBlur(gray, (25, 25), 0)
-        
-        # Umbralización bimodal Otsu + limpieza morfológica
+        h_img, w_img = gray.shape
+
+        # 1. Perfil de intensidad vertical en la zona central (descartando laterales)
+        col_profile = np.mean(gray[:, int(w_img * 0.2):int(w_img * 0.8)], axis=1)
+        smooth_profile = cv2.GaussianBlur(col_profile.reshape(-1, 1), (35, 1), 0).flatten()
+
+        # El tejido del dedo se encuentra en tonos medios, entre la carcasa negra y la fuga de luz blanca
+        is_finger_band = (smooth_profile >= 22) & (smooth_profile <= 210)
+        finger_indices = np.where(is_finger_band)[0]
+
+        if len(finger_indices) > 50:
+            diffs = np.diff(finger_indices)
+            split_points = np.where(diffs > 1)[0] + 1
+            blocks = np.split(finger_indices, split_points)
+            best_block = max(blocks, key=lambda b: len(b))
+            y_start, y_end = int(best_block[0]), int(best_block[-1])
+
+            # Margen de seguridad del 8% para evitar los bordes de fuga lumínica
+            m_y = int((y_end - y_start) * 0.08)
+            y1 = max(0, y_start + m_y)
+            y2 = min(h_img, y_end - m_y)
+        else:
+            y1, y2 = int(h_img * 0.20), int(h_img * 0.80)
+
+        # Recorte horizontal descartando bordes externos de la caja
+        x1, x2 = int(w_img * 0.08), int(w_img * 0.92)
+        band = gray[y1:y2, x1:x2]
+
+        if band.size == 0 or band.shape[0] < 30 or band.shape[1] < 50:
+            return None
+
+        # 2. Corrección fina de inclinación/rotación dentro de la banda del dedo
+        blur = cv2.GaussianBlur(band, (15, 15), 0)
         _, mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        if not contours:
-            return None
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(c) > (band.shape[0] * band.shape[1] * 0.20):
+                rect = cv2.minAreaRect(c)
+                (cx, cy), (w, h), angle = rect
+                if w < h:
+                    angle += 90.0
+                    w, h = h, w
+                if angle > 45:
+                    angle -= 90
+                elif angle < -45:
+                    angle += 90
 
-        c = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(c) < (gray.shape[0] * gray.shape[1] * 0.10):
-            return None  # Dedo mal colocado o lectura vacía
+                if abs(angle) > 1.0:
+                    M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+                    band = cv2.warpAffine(
+                        band, M, (band.shape[1], band.shape[0]),
+                        flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+                    )
 
-        # Rectángulo de área mínima para obtener centro, dimensiones y ángulo
-        rect = cv2.minAreaRect(c)
-        (cx, cy), (w, h), angle = rect
-
-        # Normalizar orientación para que el eje largo del dedo sea siempre horizontal
-        if w < h:
-            angle += 90.0
-            w, h = h, w
-
-        # Evitar giros invertidos de 180 grados
-        if angle > 90:
-            angle -= 180
-        elif angle < -90:
-            angle += 180
-
-        # Transformación Afín (Enderezado sub-píxel)
-        M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
-        aligned_gray = cv2.warpAffine(
-            gray, M, (gray.shape[1], gray.shape[0]), 
-            flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-        )
-        aligned_mask = cv2.warpAffine(
-            mask, M, (gray.shape[1], gray.shape[0]), 
-            flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0
-        )
-
-        # Recorte de caja delimitadora sobre la máscara ya alineada
-        x, y, bw, bh = cv2.boundingRect(aligned_mask)
-        
-        # Erosión de márgenes (12% vertical, 15% horizontal) para eliminar el borde 
-        # brillante de dispersión IR piel-aire que genera falsos positivos
-        margin_x = int(bw * 0.15)
-        margin_y = int(bh * 0.12)
-
-        y1, y2 = max(0, y + margin_y), min(aligned_gray.shape[0], y + bh - margin_y)
-        x1, x2 = max(0, x + margin_x), min(aligned_gray.shape[1], x + bw - margin_x)
-
-        roi = aligned_gray[y1:y2, x1:x2]
-        if roi.size == 0 or roi.shape[0] < 30 or roi.shape[1] < 30:
-            return None
-
-        return cv2.resize(roi, self.target_size, interpolation=cv2.INTER_CUBIC)
+        return cv2.resize(band, self.target_size, interpolation=cv2.INTER_CUBIC)
 
     def _compute_hessian_vesselness(self, img_norm: np.ndarray, sigmas: List[float] = [1.5, 2.5, 4.0]) -> np.ndarray:
         """
@@ -157,7 +158,7 @@ class VascularPreprocessor:
         accum = np.zeros_like(img_f)
         for kern in self.gabor_kernels:
             fimg = cv2.filter2D(img_f, cv2.CV_32F, kern)
-            np.maximum(accum, fimg, accum)
+            accum = np.maximum(accum, fimg)
         
         accum = cv2.normalize(accum, None, 0, 255, cv2.NORM_MINMAX)
         return accum.astype(np.uint8)
@@ -374,15 +375,15 @@ class VascularBiometricEngine:
 
     def _assess_vascular_quality(self, vis_map: np.ndarray) -> Tuple[bool, float]:
         """
-        Verifica que la captura contenga venas reales enfocadas y no sea un dedo
-        demasiado presionado (isquemia por presión bloquea la sangre) o movido.
+        Verifica que la captura contenga información de contraste vascular
+        y no sea una captura negra, uniforme o sin señal infrarroja.
         """
-        laplacian_var = cv2.Laplacian(vis_map, cv2.CV_64F).var()
-        vessel_density = np.mean(vis_map > 60)  # Porcentaje de píxeles con estructura tubular
+        std_val = float(np.std(vis_map))
+        laplacian_var = float(cv2.Laplacian(vis_map, cv2.CV_64F).var())
         
-        # Si no hay bordes ni densidad tubular, es una foto borrosa o sin flujo
-        is_valid = (laplacian_var > 18.0) and (0.08 <= vessel_density <= 0.65)
-        quality_score = min(100.0, (laplacian_var / 50.0) * 50 + (vessel_density / 0.3) * 50)
+        # Una imagen vacía, negra o uniforme tiene std < 5
+        is_valid = (std_val > 5.0) and (laplacian_var > 1.0)
+        quality_score = min(100.0, max(10.0, (std_val / 40.0) * 60.0 + min(40.0, laplacian_var * 2.0)))
         return is_valid, round(float(quality_score), 2)
 
     def enroll_sample(self, cedula: str, pil_image: Image.Image, sample_idx: int) -> Dict:
