@@ -258,7 +258,7 @@ class VascularBiometricEngine:
         self,
         database_dir: str = "database",
         weights_path: Optional[str] = None,
-        similarity_threshold: float = 0.60
+        similarity_threshold: float = 0.40
     ):
         self.database_dir = database_dir
         self.similarity_threshold = similarity_threshold

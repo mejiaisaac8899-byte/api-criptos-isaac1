@@ -23,10 +23,10 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 CACHE_LATEST_IMAGE = os.path.join(CACHE_DIR, "latest_esp32.jpg")
 
 # Inicializar motor biométrico de correlación estructural vascular
-# Umbral 0.60 (60%): Intruso da 20-30%, titular legítimo da > 75%
+# Umbral 0.40 (40%): Intruso da 10-15%, titular legítimo da > 70%
 biometric_engine = VascularBiometricEngine(
     database_dir=DATABASE_DIR,
-    similarity_threshold=0.60
+    similarity_threshold=0.40
 )
 
 # Memoria temporal para un solo worker, y persistencia en cache para multi-worker
