@@ -44,42 +44,57 @@ app = FastAPI(
 @app.post("/upload")
 async def upload_esp32(request: Request):
     """
-    Endpoint idéntico al del firmware Arduino del ESP32-CAM.
-    Recibe el buffer binario JPEG en crudo y lo almacena tanto en memoria
-    como en caché de disco para compatibilidad multi-proceso de Uvicorn.
+    Endpoint nativo para el ESP32-CAM.
+    Recibe el buffer binario JPEG (fb->buf, fb->len) y lo persiste
+    inmediatamente en disco y memoria para disponibilidad instantánea.
     """
     global ultima_foto_bytes
-    ultima_foto_bytes = await request.body()
+    body = await request.body()
     
-    if not ultima_foto_bytes:
-        raise HTTPException(status_code=400, detail="Buffer de imagen vacío.")
+    if not body or len(body) < 100:
+        raise HTTPException(status_code=400, detail="Buffer de imagen vacío o corrupto.")
 
-    # Guardar en caché local para que cualquier worker de Uvicorn pueda accederlo
+    ultima_foto_bytes = body
+
+    # Escritura atómica y descarga a disco con flush
     try:
         with open(CACHE_LATEST_IMAGE, "wb") as f:
-            f.write(ultima_foto_bytes)
+            f.write(body)
+            f.flush()
+            os.fsync(f.fileno())
     except Exception as e:
-        print(f"[CACHE ERROR]: No se pudo escribir en disco: {e}")
+        print(f"[CACHE DISK ERROR]: {e}")
 
-    print(f"[ESP32] Foto de {len(ultima_foto_bytes)} bytes recibida y almacenada.")
-    return Response(content="Imagen recibida exitosamente por el servidor biométrico", media_type="text/plain")
+    print(f"[ESP32] Nueva captura recibida: {len(body)} bytes persistidos en cache.")
+    return Response(content="OK", media_type="text/plain")
 
 
 def obtener_foto_del_esp32() -> Optional[Image.Image]:
-    """Recupera la última foto capturada por el ESP32 desde memoria o disco."""
+    """
+    Extrae de inmediato la última foto capturada por el ESP32.
+    Prioriza la lectura directa de disco para garantizar frescura absoluta.
+    """
+    # 1. Prioridad: Archivo en disco (siempre actualizado y sincronizado)
+    if os.path.exists(CACHE_LATEST_IMAGE):
+        try:
+            with open(CACHE_LATEST_IMAGE, "rb") as f:
+                img_data = f.read()
+            if img_data and len(img_data) > 100:
+                img = Image.open(io.BytesIO(img_data)).convert("RGB")
+                print(f"[UI] Foto del ESP32 cargada en la terminal ({len(img_data)} bytes).")
+                return img
+        except Exception as e:
+            print(f"[CACHE READ ERROR]: {e}")
+
+    # 2. Respaldo en memoria
     global ultima_foto_bytes
-    if ultima_foto_bytes:
+    if ultima_foto_bytes and len(ultima_foto_bytes) > 100:
         try:
             return Image.open(io.BytesIO(ultima_foto_bytes)).convert("RGB")
         except Exception:
             pass
 
-    if os.path.exists(CACHE_LATEST_IMAGE):
-        try:
-            return Image.open(CACHE_LATEST_IMAGE).convert("RGB")
-        except Exception:
-            pass
-
+    print("[UI] No hay capturas disponibles del ESP32 todavia.")
     return None
 
 # =====================================================================
