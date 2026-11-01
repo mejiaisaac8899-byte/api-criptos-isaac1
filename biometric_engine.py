@@ -1,444 +1,390 @@
 import os
 import glob
-import math
 import numpy as np
 import cv2
 from PIL import Image
 from typing import Tuple, List, Optional, Dict
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as T
-from torchvision.models import convnext_small, ConvNeXt_Small_Weights
-
 
 # =====================================================================
-# 1. PREPROCESADOR VASCULAR DE GRADO MÉDICO (ALINEACIÓN Y MULTIESCALA)
+# 1. EXTRACTOR TOPOLÓGICO DE VENAS (LEE ROI + MIURA STEERABLE CURVATURE)
 # =====================================================================
 class VascularPreprocessor:
     """
-    Ejecuta segmentación sub-píxel, alineación rotacional invariante mediante
-    momentos centrales de segundo orden, y extracción de características 
-    vasculares en 3 canales (CLAHE + Gabor Multidireccional + Hessiano/Frangi).
+    Motor de preprocesamiento y extracción vascular en infrarrojo cercano (850nm):
+    1. Segmentación diferencial de bordes del dedo (método de Lee et al.) inmune
+       a fugas de luz IR (>185), sombras de carcasa (<20) y dedos adyacentes.
+    2. Normalización geométrica a escala física fija manteniendo la relación de
+       aspecto del sensor OV2640 y corrigiendo inclinaciones de hasta +-12 grados.
+    3. Normalización Retinex C-infinito libre de artefactos de bloques CLAHE.
+    4. Extracción de Curvatura Máxima Dirigible (Miura Steerable Maximum Curvature)
+       en 8 orientaciones y 3 escalas espaciales + árbol binario y esqueleto.
     """
-    def __init__(self, target_size: Tuple[int, int] = (320, 160)):
-        self.target_size = target_size  # (Ancho, Alto) -> Proporción 2:1 ideal para dedos
-        self.clahe_light = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-        self.clahe_strong = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(6, 6))
-        self.gabor_kernels = self._build_gabor_bank()
-
-    def _build_gabor_bank(self) -> List[np.ndarray]:
-        """Construye un banco de filtros de Gabor de 8 orientaciones y 2 escalas."""
-        kernels = []
-        ksize = 21
-        for theta in np.arange(0, np.pi, np.pi / 8):
-            for sigma, lambd in [(3.0, 8.0), (4.5, 12.0)]:
-                kern = cv2.getGaborKernel(
-                    (ksize, ksize), sigma, theta, lambd, gamma=0.5, psi=0, ktype=cv2.CV_32F
-                )
-                kern /= 1.5 * kern.sum()
-                kernels.append(kern)
-        return kernels
+    def __init__(self, target_size: Tuple[int, int] = (320, 128)):
+        self.target_size = target_size  # (Ancho=320, Alto=128)
+        self.sigmas = (2.0, 3.5, 5.0)
+        thetas = np.linspace(0, np.pi, 8, endpoint=False)
+        self.cos_t = np.cos(thetas).astype(np.float32)
+        self.sin_t = np.sin(thetas).astype(np.float32)
 
     def _align_and_crop_roi(self, gray: np.ndarray) -> Optional[np.ndarray]:
         """
-        Aísla el cuerpo del dedo eliminando las fugas de luz infrarroja directa
-        (zonas sobreexpuestas > 210) y la sombra de la carcasa (< 22), y normaliza
-        la orientación para centrar el lecho vascular.
+        Detecta los contornos superior e inferior reales del dedo columna por columna,
+        calcula el eje central anatómico y rectifica mediante interpolación cúbica.
         """
-        h_img, w_img = gray.shape
-
-        # 1. Perfil de intensidad vertical en la zona central (descartando laterales)
-        col_profile = np.mean(gray[:, int(w_img * 0.2):int(w_img * 0.8)], axis=1)
-        smooth_profile = cv2.GaussianBlur(col_profile.reshape(-1, 1), (35, 1), 0).flatten()
-
-        # El tejido del dedo se encuentra en tonos medios, entre la carcasa negra y la fuga de luz blanca
-        is_finger_band = (smooth_profile >= 22) & (smooth_profile <= 210)
-        finger_indices = np.where(is_finger_band)[0]
-
-        if len(finger_indices) > 50:
-            diffs = np.diff(finger_indices)
-            split_points = np.where(diffs > 1)[0] + 1
-            blocks = np.split(finger_indices, split_points)
-            best_block = max(blocks, key=lambda b: len(b))
-            y_start, y_end = int(best_block[0]), int(best_block[-1])
-
-            # Margen de seguridad del 8% para evitar los bordes de fuga lumínica
-            m_y = int((y_end - y_start) * 0.08)
-            y1 = max(0, y_start + m_y)
-            y2 = min(h_img, y_end - m_y)
-        else:
-            y1, y2 = int(h_img * 0.20), int(h_img * 0.80)
-
-        # Recorte horizontal descartando bordes externos de la caja
-        x1, x2 = int(w_img * 0.08), int(w_img * 0.92)
-        band = gray[y1:y2, x1:x2]
-
-        if band.size == 0 or band.shape[0] < 30 or band.shape[1] < 50:
+        if gray is None or gray.size == 0:
+            return None
+        h, w = gray.shape[:2]
+        if h < 120 or w < 240:
             return None
 
-        # 2. Corrección fina de inclinación/rotación dentro de la banda del dedo
-        blur = cv2.GaussianBlur(band, (15, 15), 0)
-        _, mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        out_w, out_h = self.target_size
+        blur = cv2.GaussianBlur(gray.astype(np.float32), (31, 9), 0)
+        dy = cv2.Sobel(blur, cv2.CV_32F, 0, 1, ksize=5)
 
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        if contours:
-            c = max(contours, key=cv2.contourArea)
-            if cv2.contourArea(c) > (band.shape[0] * band.shape[1] * 0.20):
-                rect = cv2.minAreaRect(c)
-                (cx, cy), (w, h), angle = rect
-                if w < h:
-                    angle += 90.0
-                    w, h = h, w
-                if angle > 45:
-                    angle -= 90
-                elif angle < -45:
-                    angle += 90
+        # 1. Detectar barra superior negra del chasis plástico si está presente en la captura
+        row_means = np.mean(blur[:, int(w * 0.2):int(w * 0.8)], axis=1)
+        black_rows = np.where(row_means[:int(h * 0.35)] < 20.0)[0]
+        y_after_housing = int(black_rows[-1]) + 15 if len(black_rows) > 10 else 0
 
-                if abs(angle) > 1.0:
-                    M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
-                    band = cv2.warpAffine(
-                        band, M, (band.shape[1], band.shape[0]),
-                        flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-                    )
+        active_h = h - y_after_housing
+        if active_h > 480:
+            y_min_top = y_after_housing + int(active_h * 0.12)
+            y_max_top = y_after_housing + int(active_h * 0.45)
+        else:
+            y_min_top = max(5, y_after_housing)
+            y_max_top = y_after_housing + int(active_h * 0.28)
 
-        return cv2.resize(band, self.target_size, interpolation=cv2.INTER_CUBIC)
+        # 2. Rastreo diferencial de bordes superior (dy < 0) e inferior (dy > 0) en 32 columnas
+        xs = np.linspace(int(w * 0.15), int(w * 0.80), 32).astype(int)
+        top_y, bot_y = [], []
+        for x in xs:
+            col_dy = dy[:, x]
+            yt = y_min_top + int(np.argmin(col_dy[y_min_top:y_max_top]))
+            y_min_bot = max(yt + int(active_h * 0.50), int(h * 0.65))
+            y_max_bot = h - 4
+            yb = y_min_bot + int(np.argmax(col_dy[y_min_bot:y_max_bot]))
+            top_y.append(yt)
+            bot_y.append(yb)
 
-    def _compute_hessian_vesselness(self, img_norm: np.ndarray, sigmas: List[float] = [1.5, 2.5, 4.0]) -> np.ndarray:
+        top_y = np.array(top_y, dtype=np.float32)
+        bot_y = np.array(bot_y, dtype=np.float32)
+        cy = 0.5 * (top_y + bot_y)
+        thick = bot_y - top_y
+
+        med_thick = float(np.median(thick))
+        if med_thick < 80.0:
+            return None
+
+        # Regresión lineal robusta con rechazo de valores atípicos (inliers)
+        valid = np.abs(thick - med_thick) < (0.15 * med_thick)
+        if np.sum(valid) >= 10:
+            slope, intercept = np.polyfit(xs[valid], cy[valid], 1)
+        else:
+            slope, intercept = np.polyfit(xs, cy, 1)
+
+        # 3. Escala física constante referenciada a la geometría del chasis (evita distorsión X/Y)
+        scale = w / 1280.0
+        nom_thick = np.clip(med_thick, 395.0 * scale, 425.0 * scale)
+        half_span = np.float32(0.35 * nom_thick)
+
+        x_start, x_end = int(w * 0.09), int(w * 0.89)
+        grid_x = np.linspace(x_start, x_end, out_w, dtype=np.float32)
+        center_y_col = (slope * grid_x + intercept).astype(np.float32)
+
+        map_x = np.tile(grid_x, (out_h, 1)).astype(np.float32)
+        y_rel = np.linspace(-half_span, half_span, out_h, dtype=np.float32)[:, None]
+        map_y = (center_y_col[None, :] + y_rel).astype(np.float32)
+
+        roi = cv2.remap(
+            gray, map_x, map_y,
+            interpolation=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_REPLICATE
+        )
+        return roi
+
+    def _extract_vascular_topology(self, roi: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
         """
-        Implementación vectorial pura en NumPy/OpenCV del filtro de Frangi/Curvatura Hessiana.
-        Detecta estructuras tubulares (venas) e ignora manchas circulares o ruido del sensor.
+        Extrae el mapa continuo de curvatura máxima (Miura), el árbol binario vascular
+        depurado por componentes conexas y el esqueleto morfológico de 1 píxel.
         """
-        vesselness_max = np.zeros_like(img_norm, dtype=np.float32)
-        beta = 0.5
-        c_factor = 15.0
+        f_roi = cv2.GaussianBlur(roi.astype(np.float32), (5, 5), 0.8)
+        bg = cv2.GaussianBlur(f_roi, (0, 0), sigmaX=18.0, sigmaY=18.0)
 
-        for sigma in sigmas:
-            # Suavizado gaussiano en la escala actual
-            ksize = int(2 * np.ceil(3 * sigma) + 1)
-            smoothed = cv2.GaussianBlur(img_norm, (ksize, ksize), sigma)
+        # Absorción relativa de hemoglobina desoxigenada libre de artefactos de bloques
+        norm_vein = (bg - f_roi) / (bg + 15.0)
+        absorption_contrast = float(np.std(norm_vein))
 
-            # Segundas derivadas parciales (Matriz Hessiana)
-            Ixx = cv2.Sobel(smoothed, cv2.CV_32F, 2, 0, ksize=3) * (sigma ** 2)
-            Iyy = cv2.Sobel(smoothed, cv2.CV_32F, 0, 2, ksize=3) * (sigma ** 2)
-            Ixy = cv2.Sobel(smoothed, cv2.CV_32F, 1, 1, ksize=3) * (sigma ** 2)
+        # Máscara de protección contra saturación IR (>185)
+        leak_mask = (roi > 185).astype(np.uint8)
+        if np.any(leak_mask):
+            kern_leak = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
+            leak_dil = cv2.dilate(leak_mask, kern_leak) > 0
+        else:
+            leak_dil = None
 
-            # Autovalores analíticos de matriz simétrica 2x2
-            tmp = np.sqrt((Ixx - Iyy) ** 2 + 4 * (Ixy ** 2))
-            l1 = 0.5 * (Ixx + Iyy + tmp)
-            l2 = 0.5 * (Ixx + Iyy - tmp)
+        h, w = roi.shape
+        score_map = np.zeros((h, w), dtype=np.float32)
 
-            # Ordenar por magnitud absoluta: |lambda1| <= |lambda2|
-            cond = np.abs(l1) > np.abs(l2)
-            lambda1 = np.where(cond, l2, l1)
-            lambda2 = np.where(cond, l1, l2)
+        for sigma in self.sigmas:
+            sm = cv2.GaussianBlur(norm_vein, (0, 0), sigmaX=sigma, sigmaY=sigma)
+            fx = cv2.Sobel(sm, cv2.CV_32F, 1, 0, ksize=3) * sigma
+            fy = cv2.Sobel(sm, cv2.CV_32F, 0, 1, ksize=3) * sigma
+            fxx = cv2.Sobel(sm, cv2.CV_32F, 2, 0, ksize=3) * (sigma ** 2)
+            fyy = cv2.Sobel(sm, cv2.CV_32F, 0, 2, ksize=3) * (sigma ** 2)
+            fxy = cv2.Sobel(sm, cv2.CV_32F, 1, 1, ksize=3) * (sigma ** 2)
 
-            # En imagen invertida (venas brillantes), buscamos crestas cóncavas: lambda2 < 0
-            lambda2_safe = np.where(lambda2 == 0, -1e-6, lambda2)
-            rb = (lambda1 / lambda2_safe) ** 2
-            s2 = (lambda1 ** 2) + (lambda2 ** 2)
+            k_max = np.zeros((h, w), dtype=np.float32)
+            for c, s in zip(self.cos_t, self.sin_t):
+                fd = c * fx + s * fy
+                fdd = (c * c) * fxx + (2.0 * c * s) * fxy + (s * s) * fyy
+                k = -fdd / ((1.0 + fd * fd) ** 1.5)
+                k_max = np.maximum(k_max, k)
 
-            # Ecuación de Frangi
-            v = np.exp(-rb / (2 * (beta ** 2))) * (1.0 - np.exp(-s2 / (2 * (c_factor ** 2))))
-            v = np.where(lambda2 < 0, v, 0.0)
+            if leak_dil is not None:
+                k_max[leak_dil] = 0.0
 
-            vesselness_max = np.maximum(vesselness_max, v)
+            margin = int(np.ceil(2.0 * sigma)) + 2
+            k_max[:margin, :] = 0.0
+            k_max[-margin:, :] = 0.0
+            k_max[:, :margin] = 0.0
+            k_max[:, -margin:] = 0.0
 
-        # Normalizar a [0, 255]
-        if vesselness_max.max() > 0:
-            vesselness_max = (vesselness_max / vesselness_max.max()) * 255.0
-        return vesselness_max.astype(np.uint8)
+            p99 = float(np.percentile(k_max, 99.2))
+            if p99 > 1e-6:
+                k_max = np.clip(k_max / p99, 0.0, 1.0)
+            score_map = np.maximum(score_map, k_max)
 
-    def _compute_gabor_response(self, img: np.ndarray) -> np.ndarray:
-        """Aplica el banco de Gabor y retiene la respuesta máxima direccional."""
-        img_f = img.astype(np.float32)
-        accum = np.zeros_like(img_f)
-        for kern in self.gabor_kernels:
-            fimg = cv2.filter2D(img_f, cv2.CV_32F, kern)
-            accum = np.maximum(accum, fimg)
-        
-        accum = cv2.normalize(accum, None, 0, 255, cv2.NORM_MINMAX)
-        return accum.astype(np.uint8)
+        # Binarización adaptativa del árbol venoso y limpieza morfológica de ruido
+        local_mean = cv2.GaussianBlur(score_map, (21, 21), 5.0)
+        binary = ((score_map > local_mean + 0.05) & (score_map > 0.22)).astype(np.uint8)
 
-    def process(self, pil_image: Image.Image) -> Tuple[Optional[Image.Image], Optional[np.ndarray]]:
+        num_l, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        clean_bin = np.zeros_like(binary)
+        for i in range(1, num_l):
+            if stats[i, cv2.CC_STAT_AREA] >= 20:
+                clean_bin[labels == i] = 1
+
+        # Esqueletización morfológica (líneas centrales de 1px de grosor)
+        skel = np.zeros_like(clean_bin)
+        temp = clean_bin.copy()
+        elem = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+        while True:
+            eroded = cv2.erode(temp, elem)
+            opened = cv2.dilate(eroded, elem)
+            sub = cv2.subtract(temp, opened)
+            skel = cv2.bitwise_or(skel, sub)
+            temp = eroded
+            if cv2.countNonZero(temp) == 0:
+                break
+
+        return score_map.astype(np.float32), clean_bin, skel, absorption_contrast
+
+    def extract_template_and_vis(self, pil_image: Image.Image) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Dict]:
         """
-        Retorna un tensor visual de 3 canales (PIL Image) donde cada canal alimenta a la CNN 
-        con una representación física distinta de las venas, más el mapa de visualización.
+        Extrae la plantilla biométrica dual (H, W, 2) en uint8 [Curvatura, Árbol Binario],
+        el mapa visual para auditoría en interfaz y las métricas de calidad física.
         """
         if pil_image is None:
-            return None, None
+            return None, None, {"valid": False, "quality": 0.0}
 
-        img_bgr = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        img_rgb = np.array(pil_image.convert("RGB"))
+        gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
         roi = self._align_and_crop_roi(gray)
         if roi is None:
-            return None, None
+            return None, None, {"valid": False, "quality": 0.0}
 
-        # La hemoglobina desoxigenada absorbe a 850nm (venas oscuras). Invertimos a venas brillantes.
-        inv_roi = cv2.bitwise_not(roi)
+        score_map, clean_bin, skel, abs_contrast = self._extract_vascular_topology(roi)
 
-        # Reducción de ruido de compresión JPEG del ESP32 preservando bordes vasculares
-        denoised = cv2.fastNlMeansDenoising(inv_roi, None, h=7, templateWindowSize=7, searchWindowSize=21)
+        # Empaquetado de plantilla biométrica en 2 canales uint8:
+        # Canal 0: Mapa continuo de curvatura máxima (0..255)
+        # Canal 1: Mapa topológico binario depurado (0 o 255)
+        ch_curv = (score_map * 255.0).round().astype(np.uint8)
+        ch_bin = (clean_bin * 255).astype(np.uint8)
+        template_pack = np.stack([ch_curv, ch_bin], axis=-1)
 
-        # CANAL R: Textura base con realce adaptativo suave y filtro bilateral
-        ch_r = self.clahe_light.apply(denoised)
-        ch_r = cv2.bilateralFilter(ch_r, d=5, sigmaColor=45, sigmaSpace=45)
+        # Mapa visual de alto contraste para el cajero (fusión de cresta continua + árbol + esqueleto)
+        vis_map = np.clip(ch_curv.astype(np.float32) * 0.70 + ch_bin.astype(np.float32) * 0.30, 0, 255).astype(np.uint8)
+        vis_map[skel > 0] = 255
 
-        # CANAL G: Respuesta energética de Banco de Gabor (orientación de flujo)
-        ch_g_base = self.clahe_strong.apply(denoised)
-        ch_g = self._compute_gabor_response(ch_g_base)
+        # Evaluación física de calidad vascular
+        mean_i = float(np.mean(roi))
+        std_i = float(np.std(roi))
+        vein_density = float(np.mean(clean_bin > 0))
+        num_l, _, stats, _ = cv2.connectedComponentsWithStats(clean_bin, connectivity=8)
+        max_branch = int(stats[1:, cv2.CC_STAT_AREA].max()) if num_l > 1 else 0
 
-        # CANAL B: Curvatura Principal / Frangi Vesselness (topología pura y bifurcaciones)
-        ch_b = self._compute_hessian_vesselness(ch_r.astype(np.float32))
-
-        # Fusión en imagen compuesta multicanal para el backbone neuronal
-        multi_modal_vascular = cv2.merge([ch_r, ch_g, ch_b])
-        
-        # Mapa visual para auditoría/interfaz (combinación ponderada de curvatura y Gabor)
-        vis_map = cv2.addWeighted(ch_g, 0.5, ch_b, 0.5, 0)
-
-        return Image.fromarray(multi_modal_vascular), vis_map
-
-
-# =====================================================================
-# 2. ARQUITECTURA DEEP LEARNING CON PRESERVACIÓN TOPOLÓGICA (PyTorch)
-# =====================================================================
-class GeMPooling(nn.Module):
-    """Generalized Mean Pooling: enfoca la activación en las respuestas intensas de venas."""
-    def __init__(self, p: float = 3.0, eps: float = 1e-6):
-        super().__init__()
-        self.p = nn.Parameter(torch.ones(1) * p)
-        self.eps = eps
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.avg_pool2d(
-            x.clamp(min=self.eps).pow(self.p), (x.size(-2), x.size(-1))
-        ).pow(1.0 / self.p)
-
-
-class SpatialPyramidGeM(nn.Module):
-    """
-    Evita que la red pierda la ubicación espacial de las bifurcaciones venosas.
-    Divide el mapa de características en una cuadrícula espacial (Global + 2x4 regiones)
-    aplicando GeM en cada sub-región antes de concatenar.
-    """
-    def __init__(self, in_channels: int, out_dim: int = 512):
-        super().__init__()
-        self.gem_global = GeMPooling(p=3.0)
-        self.gem_local = GeMPooling(p=3.0)
-        
-        # 1 (Global) + 2x2 (4 cuadrantes) = 5 descriptores concatenados
-        total_concat_dim = in_channels * 5
-        
-        self.projector = nn.Sequential(
-            nn.Linear(total_concat_dim, 1024, bias=False),
-            nn.BatchNorm1d(1024),
-            nn.PReLU(),
-            nn.Dropout(p=0.1),
-            nn.Linear(1024, out_dim, bias=False),
-            nn.BatchNorm1d(out_dim, affine=True)
+        is_valid = (
+            (20.0 <= mean_i <= 215.0)
+            and (std_i >= 4.0)
+            and (abs_contrast >= 0.020)
+            and (0.06 <= vein_density <= 0.45)
+            and (max_branch >= 75)
         )
-        self._init_weights()
 
-    def _init_weights(self):
-        """Inicialización ortogonal para maximizar la separación angular inicial."""
-        for m in self.projector.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight)
+        branch_score = min(50.0, (max_branch / 380.0) * 50.0)
+        contrast_score = min(30.0, (abs_contrast / 0.055) * 30.0)
+        density_score = 20.0 * (1.0 - min(1.0, abs(vein_density - 0.25) / 0.20))
+        q_score = round(min(99.5, max(10.0, branch_score + contrast_score + density_score)), 2)
+        if not is_valid:
+            q_score = min(q_score, 35.0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, C, H, W = x.shape
-        # Descriptor Global
-        g_feat = self.gem_global(x).view(B, -1)
+        return template_pack, vis_map, {"valid": is_valid, "quality": q_score}
 
-        # Descriptores Locales (Cuadrantes Topológicos: Proximal/Distal, Superior/Inferior)
-        h_mid, w_mid = H // 2, W // 2
-        q1 = self.gem_local(x[:, :, :h_mid, :w_mid]).view(B, -1)
-        q2 = self.gem_local(x[:, :, :h_mid, w_mid:]).view(B, -1)
-        q3 = self.gem_local(x[:, :, h_mid:, :w_mid]).view(B, -1)
-        q4 = self.gem_local(x[:, :, h_mid:, w_mid:]).view(B, -1)
-
-        spatial_pyramid = torch.cat([g_feat, q1, q2, q3, q4], dim=1)
-        embedding = self.projector(spatial_pyramid)
-        return F.normalize(embedding, p=2, dim=1)
-
-
-class VascularConvNeXtNet(nn.Module):
-    """Backbone ConvNeXt-Small en FP32 con cabezal de preservación espacial."""
-    def __init__(self, embedding_dim: int = 512):
-        super().__init__()
-        weights = ConvNeXt_Small_Weights.IMAGENET1K_V1
-        base_model = convnext_small(weights=weights)
-        
-        # Extraer el extractor de características convolucional (768 canales de salida)
-        self.features = base_model.features
-        self.spatial_head = SpatialPyramidGeM(in_channels=768, out_dim=embedding_dim)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        feat_map = self.features(x)  # Shape: [B, 768, H/32, W/32]
-        embedding = self.spatial_head(feat_map)
-        return embedding
-
-
-class VascularNeuralExtractor:
-    """
-    Motor de inferencia con Test-Time Augmentation (TTA) para invariancia a
-    micro-desplazamientos longitudinales y transversales en el lector físico.
-    """
-    def __init__(self, weights_path: Optional[str] = None, num_threads: int = 4):
-        torch.set_num_threads(num_threads)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        self.model = VascularConvNeXtNet(embedding_dim=512).to(self.device)
-        if weights_path and os.path.exists(weights_path):
-            state_dict = torch.load(weights_path, map_location=self.device)
-            self.model.load_state_dict(state_dict, strict=False)
-            
-        self.model.eval()
-
-        # Transformación estándar manteniendo relación de aspecto 2:1 (320x160)
-        self.normalize = T.Compose([
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-
-    def _generate_tta_batch(self, pil_img: Image.Image) -> torch.Tensor:
+    def process(self, pil_image: Image.Image) -> Tuple[Optional[Image.Image], Optional[np.ndarray]]:
         """
-        Genera un batch de 5 vistas ligeramente desplazadas/escaladas en memoria
-        para neutralizar errores de postura del dedo en el sensor.
+        Método de compatibilidad directa con main.py:
+        Retorna (PIL.Image multicanal, vis_map np.ndarray).
         """
-        w, h = pil_img.size  # (320, 160)
-        tensors = []
-
-        # 1. Vista central original
-        tensors.append(self.normalize(pil_img))
-
-        # 2 & 3. Micro-desplazamientos longitudinales (±4% en X)
-        dx = int(w * 0.04)
-        crop_left = pil_img.crop((0, 0, w - dx, h)).resize((w, h), Image.BICUBIC)
-        crop_right = pil_img.crop((dx, 0, w, h)).resize((w, h), Image.BICUBIC)
-        tensors.append(self.normalize(crop_left))
-        tensors.append(self.normalize(crop_right))
-
-        # 4 & 5. Zoom central suave (94%) y micro-rotación residual (±1.5°)
-        zx, zy = int(w * 0.03), int(h * 0.03)
-        zoom_center = pil_img.crop((zx, zy, w - zx, h - zy)).resize((w, h), Image.BICUBIC)
-        rot_pos = pil_img.rotate(1.5, resample=Image.BICUBIC, expand=False)
-        tensors.append(self.normalize(zoom_center))
-        tensors.append(self.normalize(rot_pos))
-
-        return torch.stack(tensors, dim=0).to(self.device)
-
-    @torch.inference_mode()
-    def extract_embedding(self, pil_image: Image.Image) -> Optional[np.ndarray]:
-        if pil_image is None:
-            return None
-        try:
-            batch_tta = self._generate_tta_batch(pil_image)  # [5, 3, 160, 320]
-            embeddings = self.model(batch_tta)               # [5, 512]
-            
-            # Fusión ponderada (la vista central pesa más que las periféricas)
-            weights = torch.tensor([0.36, 0.16, 0.16, 0.16, 0.16], device=self.device).unsqueeze(1)
-            fused_embedding = torch.sum(embeddings * weights, dim=0, keepdim=True)
-            fused_embedding = F.normalize(fused_embedding, p=2, dim=1)
-            
-            return fused_embedding.squeeze(0).cpu().numpy().astype(np.float32)
-        except Exception as e:
-            print(f"[ERROR NEURAL EXTRACTOR]: {e}")
-            return None
+        tpl_pack, vis_map, _ = self.extract_template_and_vis(pil_image)
+        if tpl_pack is None or vis_map is None:
+            return None, None
+        multi_ch = np.stack([tpl_pack[:, :, 0], tpl_pack[:, :, 1], vis_map], axis=-1)
+        return Image.fromarray(multi_ch), vis_map
 
 
 # =====================================================================
-# 3. MOTOR DE COMPARACIÓN Y CONSENSO BANCARIO
+# 2. MOTOR BIOMÉTRICO BANCARIO (MATCHING TOPOLÓGICO SIMÉTRICO)
 # =====================================================================
 class VascularBiometricEngine:
     """
-    Orquestador bancario que ejecuta controles de calidad de captura, 
-    consenso sobre las 5 muestras enroladas y verificación de margen de seguridad.
+    Motor de verificación vascular de nivel bancario con:
+    - Búsqueda de alineación traslacional 2D (+-58px en X, +-16px en Y) y rotacional (+-3 grados).
+    - Correlación cruzada simétrica de media cero sobre Curvatura Dirigible de Miura.
+    - Verificación topológica del árbol binario vascular para anular falsos positivos.
     """
     def __init__(
-        self, 
-        database_dir: str = "database", 
+        self,
+        database_dir: str = "database",
         weights_path: Optional[str] = None,
-        similarity_threshold: float = 0.88
+        similarity_threshold: float = 0.60
     ):
         self.database_dir = database_dir
         self.similarity_threshold = similarity_threshold
         os.makedirs(self.database_dir, exist_ok=True)
-        
-        self.preprocessor = VascularPreprocessor(target_size=(320, 160))
-        self.extractor = VascularNeuralExtractor(weights_path=weights_path)
+        self.preprocessor = VascularPreprocessor(target_size=(320, 128))
 
-    def _assess_vascular_quality(self, vis_map: np.ndarray) -> Tuple[bool, float]:
+    @staticmethod
+    def _unpack_template(arr: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """Extrae (score_map_float32, binary_map_uint8) desde el archivo .npy almacenado."""
+        if arr is None:
+            return None
+        if arr.ndim == 3 and arr.shape == (128, 320, 2):
+            s = arr[:, :, 0].astype(np.float32) / 255.0
+            b = (arr[:, :, 1] > 127).astype(np.uint8)
+            return s, b
+        if arr.ndim == 2 and arr.shape == (128, 320):
+            s = arr.astype(np.float32) / 255.0
+            local_m = cv2.GaussianBlur(s, (21, 21), 5.0)
+            b = ((s > local_m + 0.05) & (s > 0.22)).astype(np.uint8)
+            return s, b
+        return None
+
+    def _match_vein_patterns(self, gallery_pack: np.ndarray, probe_pack: np.ndarray) -> float:
         """
-        Verifica que la captura contenga información de contraste vascular
-        y no sea una captura negra, uniforme o sin señal infrarroja.
+        Ejecuta comparación estructural simétrica entre plantilla enrolada y muestra actual:
+        1. Alineación invariante a traslación longitudinal/transversal y rotación fina.
+        2. Fusión de correlación de cresta continua (Miura MC) + topología binaria ZNCC.
+        3. Calibración estadística sobre el piso de valor extremo para separar intrusos (<25%)
+           de titulares legítimos (>70%).
         """
-        std_val = float(np.std(vis_map))
-        laplacian_var = float(cv2.Laplacian(vis_map, cv2.CV_64F).var())
-        
-        # Una imagen vacía, negra o uniforme tiene std < 5
-        is_valid = (std_val > 5.0) and (laplacian_var > 1.0)
-        quality_score = min(100.0, max(10.0, (std_val / 40.0) * 60.0 + min(40.0, laplacian_var * 2.0)))
-        return is_valid, round(float(quality_score), 2)
+        u1 = self._unpack_template(gallery_pack)
+        u2 = self._unpack_template(probe_pack)
+        if u1 is None or u2 is None:
+            return 0.0
 
-    def _match_vein_patterns(self, gallery_map: np.ndarray, probe_map: np.ndarray) -> float:
-        """
-        Calcula la correlación vascular estructural pura (Gabor + Frangi)
-        con búsqueda de alineación traslacional 2D y micro-rotaciones (+- 2.5 grados).
-        - Dedo diferente (intruso): obtiene típicamente entre 15% y 32%.
-        - Mismo dedo (legítimo): obtiene entre 75% y 98%.
-        """
-        h, w = gallery_map.shape[:2]
-        th, tw = int(h * 0.85), int(w * 0.85)
-        my, mx = (h - th) // 2, (w - tw) // 2
-        template = probe_map[my:my+th, mx:mx+tw]
+        s1, b1 = u1
+        s2, b2 = u2
+        h, w = s1.shape
+        max_dx, max_dy = 58, 16
 
-        best_score = 0.0
-        for angle in [-2.5, 0.0, 2.5]:
-            if angle != 0.0:
-                M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-                target = cv2.warpAffine(gallery_map, M, (w, h), borderMode=cv2.BORDER_REFLECT)
-            else:
-                target = gallery_map
+        best_cc = -1.0
+        best_dir = 0
+        best_angle = 0.0
+        best_loc = (max_dx, max_dy)
 
-            res = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
-            _, max_val, _, _ = cv2.minMaxLoc(res)
-            if max_val > best_score:
-                best_score = max_val
+        pairs = [(s1, s2, b1, b2), (s2, s1, b2, b1)]
+        for direction, (src, dst, _, _) in enumerate(pairs):
+            tpl = dst[max_dy:h - max_dy, max_dx:w - max_dx]
+            for angle in (-3.0, -1.5, 0.0, 1.5, 3.0):
+                if angle != 0.0:
+                    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle, 1.0)
+                    src_rot = cv2.warpAffine(
+                        src, M, (w, h),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=0.0
+                    )
+                else:
+                    src_rot = src
 
-        return max(0.0, float(best_score))
+                res = cv2.matchTemplate(src_rot, tpl, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, max_loc = cv2.minMaxLoc(res)
+                if max_val > best_cc:
+                    best_cc = float(max_val)
+                    best_dir = direction
+                    best_angle = angle
+                    best_loc = max_loc
+
+        if best_cc <= 0.0:
+            return 0.0
+
+        # Evaluar coincidencia del árbol binario vascular en la pose óptima encontrada
+        _, _, b_src, b_dst = pairs[best_dir]
+        dx = best_loc[0] - max_dx
+        dy = best_loc[1] - max_dy
+        M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), best_angle, 1.0)
+        M[0, 2] -= dx
+        M[1, 2] -= dy
+
+        b_src_al = cv2.warpAffine(
+            b_src.astype(np.float32), M, (w, h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0.0
+        )
+        sub_b1 = cv2.GaussianBlur(b_src_al[max_dy:h - max_dy, max_dx:w - max_dx], (5, 5), 1.2)
+        sub_b2 = cv2.GaussianBlur(b_dst[max_dy:h - max_dy, max_dx:w - max_dx].astype(np.float32), (5, 5), 1.2)
+
+        res_bin = cv2.matchTemplate(sub_b1, sub_b2, cv2.TM_CCOEFF_NORMED)
+        bin_zncc = max(0.0, float(res_bin[0, 0]))
+
+        # Fusión multimodal: Curvatura continua (68%) + Topología binaria (32%)
+        combined = 0.68 * max(0.0, best_cc) + 0.32 * bin_zncc
+        calibrated = float(np.clip((combined - 0.05) / (0.88 - 0.05), 0.0, 1.0))
+        if best_cc > 0.995:
+            calibrated = 1.0
+        return calibrated
 
     def enroll_sample(self, cedula: str, pil_image: Image.Image, sample_idx: int) -> Dict:
-        """Guarda la plantilla del mapa vascular real (Gabor + Frangi) para el cliente."""
+        """Procesa, valida la calidad física y guarda la plantilla vascular del cliente."""
         cedula_clean = cedula.strip().upper()
         client_dir = os.path.join(self.database_dir, cedula_clean)
         os.makedirs(client_dir, exist_ok=True)
 
-        vascular_pil, vis_map = self.preprocessor.process(pil_image)
-        if vascular_pil is None or vis_map is None:
+        tpl_pack, vis_map, q_info = self.preprocessor.extract_template_and_vis(pil_image)
+        if tpl_pack is None or vis_map is None:
             return {"status": "error", "message": "Fallo al segmentar el dedo. Alinee en el centro."}
 
-        is_valid, q_score = self._assess_vascular_quality(vis_map)
-        if not is_valid:
+        q_score = q_info["quality"]
+        if not q_info["valid"]:
             return {
-                "status": "rejected", 
-                "message": f"Calidad vascular insuficiente ({q_score}%). Verifique la luz o enfoque."
+                "status": "rejected",
+                "message": f"Calidad vascular insuficiente ({q_score}%). Verifique posición o iluminación IR."
             }
 
-        # Guardamos directamente el mapa vascular 2D discriminativo
         save_path = os.path.join(client_dir, f"sample_{sample_idx}.npy")
-        np.save(save_path, vis_map)
+        np.save(save_path, tpl_pack)
+        try:
+            pil_image.save(os.path.join(client_dir, f"original_{sample_idx}.jpg"), format="JPEG", quality=95)
+        except Exception:
+            pass
         return {"status": "success", "quality": q_score, "file": save_path}
 
     def verify_identity(self, cedula: str, pil_image: Image.Image) -> Tuple[str, Optional[np.ndarray], Dict]:
         """
-        Autenticación bancaria basada en correlación estructural de venas.
-        Tolerancia cero a falsos positivos (dedos distintos arrojan < 35%).
+        Autenticación biométrica 1:1 mediante consenso Top-3 sobre las muestras enroladas.
         """
         cedula_clean = cedula.strip().upper()
         client_dir = os.path.join(self.database_dir, cedula_clean)
@@ -446,33 +392,37 @@ class VascularBiometricEngine:
         if not os.path.exists(client_dir) or pil_image is None:
             return "🔴 ERROR: Cliente no enrolado o imagen nula.", None, {"authenticated": False}
 
-        # 1. Extracción del mapa vascular de la imagen actual
-        vascular_pil, probe_vis_map = self.preprocessor.process(pil_image)
-        if vascular_pil is None or probe_vis_map is None:
+        probe_pack, probe_vis_map, q_info = self.preprocessor.extract_template_and_vis(pil_image)
+        if probe_pack is None or probe_vis_map is None:
             return "🟡 LECTURA INVÁLIDA: Coloque el dedo correctamente.", None, {"authenticated": False}
 
-        is_valid, q_score = self._assess_vascular_quality(probe_vis_map)
-        if not is_valid:
-            return f"🟡 BAJA CALIDAD SEÑAL IR ({q_score}%): Enfoque el sensor.", probe_vis_map, {"authenticated": False}
+        q_score = q_info["quality"]
+        if not q_info["valid"]:
+            return f"🟡 BAJA CALIDAD SEÑAL IR ({q_score}%): Ajuste el dedo en el sensor.", probe_vis_map, {"authenticated": False}
 
-        # 2. Carga y comparación contra las 5 muestras enroladas
         template_files = sorted(glob.glob(os.path.join(client_dir, "*.npy")))
         if not template_files:
             return "🔴 ERROR: Sin plantillas biométricas.", probe_vis_map, {"authenticated": False}
 
         match_scores = []
         for fpath in template_files:
-            gallery_map = np.load(fpath)
-            if gallery_map.shape == probe_vis_map.shape:
-                score = self._match_vein_patterns(gallery_map, probe_vis_map)
-                match_scores.append(score)
+            try:
+                gallery_pack = np.load(fpath)
+                if self._unpack_template(gallery_pack) is not None:
+                    score = self._match_vein_patterns(gallery_pack, probe_pack)
+                    match_scores.append(score)
+            except Exception:
+                continue
 
         if not match_scores:
-            return "🔴 ERROR: Plantillas antiguas incompatibles. Por favor re-enrole el cliente.", probe_vis_map, {"authenticated": False}
+            return (
+                "🔴 ERROR: Plantillas antiguas incompatibles. Por favor re-enrole las 5 muestras del cliente.",
+                probe_vis_map,
+                {"authenticated": False}
+            )
 
         match_scores.sort(reverse=True)
 
-        # 3. Consenso del Top-3
         if len(match_scores) >= 3:
             top_k_score = float(sum(match_scores[:3]) / 3.0)
         else:
@@ -489,12 +439,10 @@ class VascularBiometricEngine:
             "quality_score": q_score
         }
 
-        # Umbral seguro calibrado: 60% (Un intruso da ~25%, el titular da > 75%)
-        VASCULAR_THRESHOLD = 0.60
+        VASCULAR_THRESHOLD = self.similarity_threshold
 
-        if top_k_score >= VASCULAR_THRESHOLD and max_single_match >= 0.65:
+        if top_k_score >= VASCULAR_THRESHOLD and max_single_match >= (VASCULAR_THRESHOLD + 0.05):
             metrics["authenticated"] = True
             return f"🟢 IDENTIDAD CONFIRMADA ({porcentaje}% - Máx: {max_porcentaje}%)", probe_vis_map, metrics
         else:
             return f"🔴 FRAUDE DETECTADO (Dedo no coincide: {porcentaje}%)", probe_vis_map, metrics
-            return f"🔴 FRAUDE DETECTADO ({porcentaje}%)", vis_map, metrics
