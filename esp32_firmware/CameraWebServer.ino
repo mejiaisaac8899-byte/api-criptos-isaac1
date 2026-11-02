@@ -16,7 +16,7 @@ const char *ssid = "Isaac2";
 const char *password = "6313mejia";
 
 // Opción 1 (Mundial / Cloudflare): Funciona desde cualquier red WiFi del mundo
-String serverUrl = "https://towns-side-arena-those.trycloudflare.com/upload";
+String serverUrl = "https://allocation-terrorism-territory-vast.trycloudflare.com/upload";
 
 // Opción 2 (Local ultra-rápida): Si la PC y el ESP32 están en el mismo WiFi
 // String serverUrl = "http://192.168.10.6:8000/upload";
