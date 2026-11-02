@@ -1,0 +1,2990 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Banco Biométrico Vascular - ESP32</title>
+  <style>
+    :root {
+      --bg: #0b132b;
+      --surface: #1c2541;
+      --surface-card: #1e293b;
+      --surface-border: #334155;
+      --primary: #10b981;
+      --primary-hover: #059669;
+      --primary-glow: rgba(16, 185, 129, 0.25);
+      --secondary: #3b82f6;
+      --secondary-hover: #2563eb;
+      --accent: #f59e0b;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation */
+    header {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--surface-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .brand-logo svg {
+      width: 24px;
+      height: 24px;
+      fill: #fff;
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(to right, #ffffff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-subtitle {
+      font-size: 0.7rem;
+      color: var(--primary);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      padding: 0.4rem 0.8rem;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .user-pill .avatar {
+      width: 26px;
+      height: 26px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: bold;
+    }
+
+    .btn-logout {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem;
+      display: flex;
+      align-items: center;
+      transition: var(--transition);
+    }
+    .btn-logout:hover {
+      color: var(--danger);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem 1rem;
+    }
+
+    /* Tab navigation */
+    .tab-nav {
+      display: flex;
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 0.35rem;
+      margin-bottom: 1.5rem;
+      gap: 0.35rem;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: var(--transition);
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .tab-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* Balance Hero Card */
+    .balance-card {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .balance-card::before {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .balance-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .balance-label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .balance-currency-tag {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .balance-amount {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      color: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    .balance-amount .currency {
+      font-size: 1.5rem;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .balance-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .action-btn {
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      padding: 1rem;
+      border-radius: var(--radius);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: var(--transition);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+
+    .action-btn:hover {
+      background: #253349;
+      transform: translateY(-2px);
+      border-color: var(--primary);
+    }
+
+    .action-btn .icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-box.green {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--primary);
+    }
+
+    .icon-box.blue {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--secondary);
+    }
+
+    .action-btn svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+
+    /* Forms and Panels */
+    .panel {
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+    }
+
+    .panel-header {
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .panel-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.2rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-size: 1rem;
+      transition: var(--transition);
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    /* Preset amount buttons */
+    .amount-presets {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .preset-btn {
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      color: var(--text);
+      padding: 0.6rem 0.2rem;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: center;
+    }
+
+    .preset-btn:hover, .preset-btn.active {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 0.9rem 1.25rem;
+      background: var(--primary);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: var(--transition);
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .btn-submit svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .btn-secondary {
+      background: #334155;
+      color: #fff;
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #475569;
+    }
+
+    /* Camera Viewfinder */
+    .camera-box {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 2px solid var(--surface-border);
+      aspect-ratio: 4/3;
+      max-height: 380px;
+      margin: 0 auto 1.25rem auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .camera-stream {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .camera-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border: 2px dashed rgba(16, 185, 129, 0.4);
+      margin: 1.5rem;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 0 20px rgba(16, 185, 129, 0.15);
+    }
+
+    .scan-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--primary), transparent);
+      box-shadow: 0 0 8px var(--primary);
+      animation: scan 2.5s infinite linear;
+    }
+
+    @keyframes scan {
+      0% { top: 10%; opacity: 0.2; }
+      50% { opacity: 1; }
+      100% { top: 90%; opacity: 0.2; }
+    }
+
+    .cam-status-pill {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      animation: pulse 1.5s infinite;
+    }
+
+    .dot.red {
+      background: var(--danger);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .cam-switch {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* ESP-CAM IP Configuration Panel */
+    .esp-ip-panel {
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 0.85rem;
+      margin-bottom: 1rem;
+    }
+
+    .esp-ip-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .esp-ip-input-group {
+      flex: 1;
+      min-width: 220px;
+      display: flex;
+      align-items: center;
+      background: #1e293b;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      padding: 0 0.6rem;
+    }
+
+    .esp-ip-input-group span {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      margin-right: 0.4rem;
+      font-weight: 600;
+    }
+
+    .esp-ip-input-group input {
+      background: transparent;
+      border: none;
+      padding: 0.6rem 0.2rem;
+      color: #fff;
+      font-size: 0.95rem;
+      width: 100%;
+      font-family: monospace;
+    }
+
+    .esp-ip-input-group input:focus {
+      outline: none;
+    }
+
+    .esp-ip-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Comparison Section */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .capture-card {
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 0.75rem;
+      text-align: center;
+    }
+
+    .capture-preview-box {
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px dashed var(--surface-border);
+    }
+
+    .capture-preview-box img, .capture-preview-box canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .capture-preview-placeholder {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .capture-preview-placeholder svg {
+      width: 24px;
+      height: 24px;
+      fill: var(--text-muted);
+    }
+
+    .capture-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .badge-pending {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent);
+    }
+
+    .badge-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--primary);
+    }
+
+    .badge-error {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    /* Comparison Result Box */
+    .compare-result-box {
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      text-align: center;
+      display: none;
+    }
+
+    .sim-bar-container {
+      width: 100%;
+      height: 12px;
+      background: #1e293b;
+      border-radius: 9999px;
+      overflow: hidden;
+      margin: 0.75rem 0;
+    }
+
+    .sim-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--danger), var(--accent), var(--primary));
+      transition: width 0.8s ease-out;
+    }
+
+    .sim-score {
+      font-size: 1.75rem;
+      font-weight: 800;
+    }
+
+    /* Modals & Receipts */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .receipt-card {
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 440px;
+      padding: 1.75rem;
+      position: relative;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      text-align: center;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .receipt-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      margin: 0 auto 1rem auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .receipt-icon.success {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--primary);
+      border: 2px solid var(--primary);
+    }
+
+    .receipt-icon.error {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 2px solid var(--danger);
+    }
+
+    .receipt-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: currentColor;
+    }
+
+    .receipt-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.25rem;
+    }
+
+    .receipt-amount {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--primary);
+      margin: 0.75rem 0;
+    }
+
+    .receipt-details {
+      background: #0f172a;
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+      text-align: left;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+    }
+
+    .receipt-row span:last-child {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* History table */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      padding: 0.85rem 1rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .history-item-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .history-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .history-desc {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .history-date {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .history-amount {
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .amount-in {
+      color: var(--primary);
+    }
+
+    .amount-out {
+      color: var(--danger);
+    }
+
+    /* Auth Screens */
+    .auth-card {
+      max-width: 420px;
+      margin: 2rem auto;
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    .auth-toggle {
+      display: flex;
+      background: #0f172a;
+      border-radius: var(--radius-sm);
+      padding: 0.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .auth-toggle-btn {
+      flex: 1;
+      padding: 0.6rem;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .auth-toggle-btn.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .demo-users-box {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--surface-border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .demo-pill {
+      display: inline-block;
+      background: #0f172a;
+      border: 1px solid var(--surface-border);
+      color: var(--text);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 0.2rem;
+      transition: var(--transition);
+    }
+
+    .demo-pill:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    /* Alerts */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #1e293b;
+      border-left: 4px solid var(--primary);
+      color: #fff;
+      padding: 0.75rem 1.25rem;
+      border-radius: var(--radius-sm);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+      z-index: 2000;
+      font-size: 0.9rem;
+      display: none;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); }
+      to { transform: translateX(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24"><path d="M4 10h16v2H4zm0-4h16v2H4zm0 8h16v2H4zm-2 6h20v2H2zM12 1L2 6v2h20V6z"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">BANCO BIOMÉTRICO</div>
+        <div class="brand-subtitle">ESP32 Red Vascular 850nm</div>
+      </div>
+    </div>
+
+    <div id="userHeaderSection" style="display: none; align-items: center; gap: 0.75rem;">
+      <div class="user-pill">
+        <div class="avatar" id="userAvatar">U</div>
+        <span id="userNameDisplay">usuario</span>
+      </div>
+      <button class="btn-logout" id="btnLogout" title="Cerrar Sesión">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M16 13v-2H7V8l-5 4 5 4v-3zM20 3H10c-1.1 0-2 .9-2 2v4h2V5h10v14H10v-4H8v4c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- SECTION: AUTHENTICATION (Login & Register) -->
+    <div id="authSection" class="auth-card">
+      <div class="auth-toggle">
+        <button type="button" class="auth-toggle-btn active" id="tabLoginBtn" onclick="toggleAuth('login')">Iniciar Sesión</button>
+        <button type="button" class="auth-toggle-btn" id="tabRegisterBtn" onclick="toggleAuth('register')">Registro</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">Usuario</label>
+          <input type="text" id="loginUser" class="form-control" placeholder="Ej: cliente" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Clave</label>
+          <input type="password" id="loginPass" class="form-control" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-submit">
+          <svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5v10zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
+          Ingresar al Banco
+        </button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="registerForm" onsubmit="handleRegister(event)" style="display: none;">
+        <div class="form-group">
+          <label class="form-label">Nuevo Usuario</label>
+          <input type="text" id="regUser" class="form-control" placeholder="Nombre de usuario" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Clave</label>
+          <input type="password" id="regPass" class="form-control" placeholder="Mínimo 4 caracteres" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirmar Clave</label>
+          <input type="password" id="regPassConfirm" class="form-control" placeholder="Repite la clave" required>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--primary); margin-bottom: 1rem; font-weight: 500;">
+          ✨ Al registrarte se te otorgará automáticamente un saldo inicial de <strong>100,00 Bolívares</strong>.
+        </p>
+        <button type="submit" class="btn-submit">
+          <svg viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          Crear Cuenta y Recibir 100 Bs.
+        </button>
+      </form>
+
+      <!-- Demo shortcuts -->
+      <div class="demo-users-box">
+        <div><strong>Usuarios de prueba (Saldo 100 Bs c/u):</strong></div>
+        <span class="demo-pill" onclick="fillDemo('cliente', '1234')">👤 cliente (1234)</span>
+        <span class="demo-pill" onclick="fillDemo('comercio', '1234')">🏪 comercio (1234)</span>
+        <span class="demo-pill" onclick="fillDemo('admin', 'admin123')">🔑 admin (admin123)</span>
+      </div>
+    </div>
+
+    <!-- SECTION: BANK APPLICATION (When Logged In) -->
+    <div id="bankAppSection" style="display: none;">
+
+      <!-- Balance Hero Card -->
+      <div class="balance-card">
+        <div class="balance-header">
+          <span class="balance-label">Saldo Disponible</span>
+          <span class="balance-currency-tag">VED • Bolívares</span>
+        </div>
+        <div class="balance-amount">
+          <span class="currency">Bs.</span>
+          <span id="currentBalanceDisplay">100,00</span>
+        </div>
+        <div class="balance-footer">
+          <span>Cuenta Principal #0102-****-8491</span>
+          <span id="sessionStatusBadge">● Conexión Segura</span>
+        </div>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchView('pagomovil')" id="tabNavPagoMovil">
+          <svg viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"/></svg>
+          Pago Móvil
+        </button>
+        <button class="tab-btn" onclick="switchView('venta')" id="tabNavVenta">
+          <svg viewBox="0 0 24 24"><path d="M9.4 10.5l4.77-8.26C13.47 2.09 12.75 2 12 2 6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10c0-.83-.09-1.63-.25-2.4L10.9 10.5zM12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z"/></svg>
+          Venta (Cámara)
+        </button>
+        <button class="tab-btn" onclick="switchView('enrolar')" id="tabNavEnrolar">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+          Enrolar Dedo
+        </button>
+        <button class="tab-btn" onclick="switchView('historial')" id="tabNavHistorial">
+          <svg viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+          Movimientos
+        </button>
+        <button class="tab-btn" onclick="switchView('config')" id="tabNavConfig">
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          Configuración
+        </button>
+      </div>
+
+      <!-- VIEW 1: PAGO MÓVIL -->
+      <div id="viewPagoMovil" class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--primary)"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
+              Transferencia Pago Móvil
+            </div>
+            <div class="panel-subtitle">Transfiere saldo al instante a cualquier usuario</div>
+          </div>
+        </div>
+
+        <form id="pagoMovilForm" onsubmit="handlePagoMovil(event)">
+          <div class="form-group">
+            <label class="form-label">Usuario Destinatario</label>
+            <input type="text" id="pmTargetUser" class="form-control" placeholder="Nombre de usuario (ej: comercio)" required list="userList">
+            <datalist id="userList"></datalist>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Monto a Transferir (Bs.)</label>
+            <input type="number" id="pmAmount" class="form-control" placeholder="0.00" min="0.01" step="0.01" required oninput="syncPmPresets(this.value)">
+            <div class="amount-presets">
+              <button type="button" class="preset-btn" onclick="setPmAmount(10)">10 Bs.</button>
+              <button type="button" class="preset-btn" onclick="setPmAmount(20)">20 Bs.</button>
+              <button type="button" class="preset-btn" onclick="setPmAmount(50)">50 Bs.</button>
+              <button type="button" class="preset-btn" onclick="setPmAmount(100)">100 Bs.</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Concepto (Opcional)</label>
+            <input type="text" id="pmConcept" class="form-control" placeholder="Ej: Pago de almuerzo">
+          </div>
+
+          <button type="submit" class="btn-submit">
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            Transferir Monto
+          </button>
+        </form>
+      </div>
+
+      <!-- VIEW 2: VENTA (POS CON CÁMARA Y COBRO BIOMÉTRICO) -->
+      <div id="viewVenta" class="panel" style="display: none;">
+
+        <!-- STEP A: Setup Venta / Cobro -->
+        <div id="ventaStepSetup">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--primary)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 16h-2v-2h2v2zm0-4h-2V7h2v7z"/></svg>
+                Punto de Venta Biométrico
+              </div>
+              <div class="panel-subtitle">Visualiza la cámara, coloca el usuario y elige el monto a cobrar</div>
+            </div>
+          </div>
+
+          <!-- Camera Stream Box -->
+          <div class="camera-box">
+            <img id="esp32StreamImg" class="camera-stream" alt="ESP32 Stream" style="display: none;">
+            <video id="webcamVideo" class="camera-stream" autoplay playsinline muted style="display: block;"></video>
+            <div class="camera-overlay">
+              <div class="scan-line"></div>
+            </div>
+            <div class="cam-status-pill">
+              <div class="dot" id="camStatusDot"></div>
+              <span id="camStatusText">Cámara Activa</span>
+            </div>
+          </div>
+
+          <!-- Camera Source Switch -->
+          <div class="cam-switch">
+            <span>Fuente: <strong id="camSourceLabel">WebCam / Dispositivo</strong></span>
+            <button type="button" class="preset-btn" style="padding: 0.3rem 0.7rem;" onclick="toggleCameraSource()">
+              🔄 Cambiar a ESP32 Cam
+            </button>
+          </div>
+
+          <!-- Cobro Parameters Form -->
+          <form id="ventaForm" onsubmit="handleProceedToCompare(event)">
+            <div class="form-group">
+              <label class="form-label">Nombre de Usuario del Cliente (a debitar)</label>
+              <input type="text" id="ventaClientUser" class="form-control" placeholder="Ej: cliente" required list="userList">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Elige el Monto a Cobrar (Bs.)</label>
+              <input type="number" id="ventaAmount" class="form-control" placeholder="0.00" min="0.01" step="0.01" required oninput="syncVentaPresets(this.value)">
+              <div class="amount-presets">
+                <button type="button" class="preset-btn" onclick="setVentaAmount(10)">10 Bs.</button>
+                <button type="button" class="preset-btn" onclick="setVentaAmount(20)">20 Bs.</button>
+                <button type="button" class="preset-btn" onclick="setVentaAmount(50)">50 Bs.</button>
+                <button type="button" class="preset-btn" onclick="setVentaAmount(100)">100 Bs.</button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn-submit" id="btnCobrar">
+              <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+              Cobrar ➔ Ir a Comparar Biometría
+            </button>
+          </form>
+        </div>
+
+        <!-- STEP B: COMPARAR Y CAPTURAR 2 IMÁGENES -->
+        <div id="ventaStepCompare" style="display: none;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--primary)"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                Comparación Biométrica
+              </div>
+              <div class="panel-subtitle">
+                Cobrando a <strong id="lblCompareUser" style="color:#fff;">@cliente</strong> la cantidad de <strong id="lblCompareAmount" style="color:var(--primary);">Bs. 0,00</strong>
+              </div>
+            </div>
+            <button type="button" class="preset-btn" onclick="backToVentaSetup()">
+              ← Regresar
+            </button>
+          </div>
+
+          <!-- IP Configuration Bar for ESP32-CAM -->
+          <div class="esp-ip-panel">
+            <div class="esp-ip-row">
+              <div class="esp-ip-input-group">
+                <span>📡 IP ESP32-CAM:</span>
+                <input type="text" id="espCamIpInput" placeholder="Ej: 192.168.1.36" onkeydown="if(event.key==='Enter'){event.preventDefault(); connectEspCamIp();}">
+              </div>
+              <button type="button" class="btn-submit" style="width: auto; padding: 0.6rem 1rem; font-size: 0.85rem;" onclick="connectEspCamIp()">
+                Conectar IP
+              </button>
+              <button type="button" class="preset-btn" id="btnCompareSourceToggle" style="padding: 0.6rem 0.8rem;" onclick="toggleCameraSource()">
+                🔄 Alternar WebCam
+              </button>
+            </div>
+            <div class="esp-ip-status" id="espIpStatus">
+              <span class="dot" id="espIpDot"></span>
+              <span id="espIpStatusText">Configura la IP de la ESP32-CAM para conectar el stream</span>
+            </div>
+          </div>
+
+          <!-- Small live camera guide -->
+          <div class="camera-box" style="max-height: 220px; margin-bottom: 1rem;">
+            <img id="esp32StreamImgCompare" class="camera-stream" alt="ESP32 Stream" style="display: none;" crossorigin="anonymous">
+            <video id="webcamVideoCompare" class="camera-stream" autoplay playsinline muted style="display: block;"></video>
+            <div class="camera-overlay"><div class="scan-line"></div></div>
+          </div>
+
+          <!-- 2 Captures Grid -->
+          <div class="compare-grid">
+            <!-- Capture 1 -->
+            <div class="capture-card">
+              <div class="capture-title">Muestra 1 (Patrón)</div>
+              <span class="badge badge-pending" id="badgeCap1">Sin Captura</span>
+              <div class="capture-preview-box">
+                <canvas id="canvasCapture1" width="320" height="240" style="display: none;"></canvas>
+                <div id="placeholderCap1" class="capture-preview-placeholder">
+                  <svg viewBox="0 0 24 24"><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+                  <span>Esperando toma 1</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                <button type="button" class="btn-submit" style="flex: 1; padding: 0.55rem; font-size: 0.78rem;" onclick="captureSample(1)">
+                  📸 Cámara
+                </button>
+                <button type="button" class="btn-submit" style="flex: 1; background: #0284c7; padding: 0.55rem; font-size: 0.78rem;" onclick="extractLatestEsp32Photo(1)">
+                  📡 ESP32
+                </button>
+                <label class="preset-btn" style="flex: 1; margin: 0; padding: 0.55rem; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleFileUpload(event, 1)">
+                </label>
+              </div>
+            </div>
+
+            <!-- Capture 2 -->
+            <div class="capture-card">
+              <div class="capture-title">Muestra 2 (Verificación)</div>
+              <span class="badge badge-pending" id="badgeCap2">Sin Captura</span>
+              <div class="capture-preview-box">
+                <canvas id="canvasCapture2" width="320" height="240" style="display: none;"></canvas>
+                <div id="placeholderCap2" class="capture-preview-placeholder">
+                  <svg viewBox="0 0 24 24"><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+                  <span>Esperando toma 2</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                <button type="button" class="btn-submit" style="flex: 1; padding: 0.55rem; font-size: 0.78rem;" onclick="captureSample(2)">
+                  📸 Cámara
+                </button>
+                <button type="button" class="btn-submit" style="flex: 1; background: #0284c7; padding: 0.55rem; font-size: 0.78rem;" onclick="extractLatestEsp32Photo(2)">
+                  📡 ESP32
+                </button>
+                <label class="preset-btn" style="flex: 1; margin: 0; padding: 0.55rem; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleFileUpload(event, 2)">
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Comparison result feedback -->
+          <div id="compareResultBox" class="compare-result-box">
+            <div style="font-size: 0.85rem; color: var(--text-muted);">Índice de Coincidencia Biométrica</div>
+            <div class="sim-score" id="simScoreText">0%</div>
+            <div class="sim-bar-container">
+              <div class="sim-bar" id="simProgressBar"></div>
+            </div>
+            <div id="simMessage" style="font-weight: 600; font-size: 0.95rem;"></div>
+            <div id="vascularMapBox" style="display: none; margin-top: 1rem; padding: 0.75rem; background: #0b132b; border: 1px solid var(--surface-border); border-radius: var(--radius-sm);">
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.5px;">Mapa Vascular Detectado (Miura Curvature):</div>
+              <img id="imgVascularMap" style="width: 100%; max-height: 180px; object-fit: contain; border-radius: 6px;" alt="Vascular Map">
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <button type="button" class="btn-submit" id="btnRunComparison" onclick="processBiometricComparison()" disabled>
+              🔍 Comparar Imágenes y Cobrar
+            </button>
+
+            <!-- Quick Demo Testing Aids -->
+            <div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;">
+              <button type="button" class="preset-btn" onclick="captureBothAuto()" title="Toma las dos fotos automáticamente">
+                ⚡ Captura Rápida (1 y 2)
+              </button>
+              <button type="button" class="preset-btn" onclick="simulateMatch(true)" title="Fuerza coincidencia para demostración">
+                ✅ Test Coinciden
+              </button>
+              <button type="button" class="preset-btn" onclick="simulateMatch(false)" title="Fuerza discrepancia para demostración">
+                ❌ Test No Coinciden
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- VIEW: ENROLAMIENTO BIOMÉTRICO (5 MUESTRAS) -->
+      <div id="viewEnrolar" class="panel" style="display: none;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--primary)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+              Registro y Enrolamiento de Venas
+            </div>
+            <div class="panel-subtitle">Captura las 5 muestras vasculares para vincular al usuario en la base de datos</div>
+          </div>
+        </div>
+
+        <form id="enrolForm" onsubmit="handleEnrollmentSubmit(event)">
+          <div class="form-group">
+            <label class="form-label">Cédula o Usuario a Enrolar</label>
+            <input type="text" id="enrolCedula" class="form-control" placeholder="Ej: V-12345678 o 1" required>
+          </div>
+
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            💡 <em>Coloca el dedo en el sensor y presiona 'Extraer ESP32' o sube la foto para cada una de las 5 muestras:</em>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem;">
+            <!-- Slot 1 -->
+            <div class="capture-card" style="padding: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem;">Muestra 1</div>
+              <span class="badge badge-pending" id="badgeEnrol1">Pendiente</span>
+              <div class="capture-preview-box" style="height: 100px; aspect-ratio: auto; margin-bottom: 0.4rem;">
+                <canvas id="canvasEnrol1" width="160" height="120" style="display: none;"></canvas>
+                <div id="phEnrol1" style="font-size: 0.7rem; color: var(--text-muted);">Sin foto</div>
+              </div>
+              <div style="display: flex; gap: 0.25rem;">
+                <button type="button" class="btn-submit" style="background:#0284c7; padding: 0.35rem 0.5rem; font-size: 0.72rem; flex: 1;" onclick="extractEsp32ForEnrol(1)">📡 ESP32</button>
+                <label class="preset-btn" style="padding: 0.35rem 0.5rem; font-size: 0.72rem; cursor: pointer; flex: 1; margin: 0; text-align: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleEnrolFileUpload(event, 1)">
+                </label>
+              </div>
+            </div>
+
+            <!-- Slot 2 -->
+            <div class="capture-card" style="padding: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem;">Muestra 2</div>
+              <span class="badge badge-pending" id="badgeEnrol2">Pendiente</span>
+              <div class="capture-preview-box" style="height: 100px; aspect-ratio: auto; margin-bottom: 0.4rem;">
+                <canvas id="canvasEnrol2" width="160" height="120" style="display: none;"></canvas>
+                <div id="phEnrol2" style="font-size: 0.7rem; color: var(--text-muted);">Sin foto</div>
+              </div>
+              <div style="display: flex; gap: 0.25rem;">
+                <button type="button" class="btn-submit" style="background:#0284c7; padding: 0.35rem 0.5rem; font-size: 0.72rem; flex: 1;" onclick="extractEsp32ForEnrol(2)">📡 ESP32</button>
+                <label class="preset-btn" style="padding: 0.35rem 0.5rem; font-size: 0.72rem; cursor: pointer; flex: 1; margin: 0; text-align: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleEnrolFileUpload(event, 2)">
+                </label>
+              </div>
+            </div>
+
+            <!-- Slot 3 -->
+            <div class="capture-card" style="padding: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem;">Muestra 3</div>
+              <span class="badge badge-pending" id="badgeEnrol3">Pendiente</span>
+              <div class="capture-preview-box" style="height: 100px; aspect-ratio: auto; margin-bottom: 0.4rem;">
+                <canvas id="canvasEnrol3" width="160" height="120" style="display: none;"></canvas>
+                <div id="phEnrol3" style="font-size: 0.7rem; color: var(--text-muted);">Sin foto</div>
+              </div>
+              <div style="display: flex; gap: 0.25rem;">
+                <button type="button" class="btn-submit" style="background:#0284c7; padding: 0.35rem 0.5rem; font-size: 0.72rem; flex: 1;" onclick="extractEsp32ForEnrol(3)">📡 ESP32</button>
+                <label class="preset-btn" style="padding: 0.35rem 0.5rem; font-size: 0.72rem; cursor: pointer; flex: 1; margin: 0; text-align: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleEnrolFileUpload(event, 3)">
+                </label>
+              </div>
+            </div>
+
+            <!-- Slot 4 -->
+            <div class="capture-card" style="padding: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem;">Muestra 4</div>
+              <span class="badge badge-pending" id="badgeEnrol4">Pendiente</span>
+              <div class="capture-preview-box" style="height: 100px; aspect-ratio: auto; margin-bottom: 0.4rem;">
+                <canvas id="canvasEnrol4" width="160" height="120" style="display: none;"></canvas>
+                <div id="phEnrol4" style="font-size: 0.7rem; color: var(--text-muted);">Sin foto</div>
+              </div>
+              <div style="display: flex; gap: 0.25rem;">
+                <button type="button" class="btn-submit" style="background:#0284c7; padding: 0.35rem 0.5rem; font-size: 0.72rem; flex: 1;" onclick="extractEsp32ForEnrol(4)">📡 ESP32</button>
+                <label class="preset-btn" style="padding: 0.35rem 0.5rem; font-size: 0.72rem; cursor: pointer; flex: 1; margin: 0; text-align: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleEnrolFileUpload(event, 4)">
+                </label>
+              </div>
+            </div>
+
+            <!-- Slot 5 -->
+            <div class="capture-card" style="padding: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem;">Muestra 5</div>
+              <span class="badge badge-pending" id="badgeEnrol5">Pendiente</span>
+              <div class="capture-preview-box" style="height: 100px; aspect-ratio: auto; margin-bottom: 0.4rem;">
+                <canvas id="canvasEnrol5" width="160" height="120" style="display: none;"></canvas>
+                <div id="phEnrol5" style="font-size: 0.7rem; color: var(--text-muted);">Sin foto</div>
+              </div>
+              <div style="display: flex; gap: 0.25rem;">
+                <button type="button" class="btn-submit" style="background:#0284c7; padding: 0.35rem 0.5rem; font-size: 0.72rem; flex: 1;" onclick="extractEsp32ForEnrol(5)">📡 ESP32</button>
+                <label class="preset-btn" style="padding: 0.35rem 0.5rem; font-size: 0.72rem; cursor: pointer; flex: 1; margin: 0; text-align: center;">
+                  📁 Subir
+                  <input type="file" accept="image/*" style="display:none;" onchange="handleEnrolFileUpload(event, 5)">
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-submit" id="btnSubmitEnrol">
+            🔒 Guardar Enrolamiento en Base de Datos
+          </button>
+        </form>
+      </div>
+
+      <!-- VIEW 3: HISTORIAL -->
+      <div id="viewHistorial" class="panel" style="display: none;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Historial de Transacciones</div>
+            <div class="panel-subtitle">Registro de movimientos bancarios y cobros biométricos</div>
+          </div>
+          <button type="button" class="preset-btn" onclick="renderHistory()">Actualizar</button>
+        </div>
+
+        <div id="historyList" class="history-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+
+      <!-- VIEW 4: CONFIGURACIÓN -->
+      <div id="viewConfig" class="panel" style="display: none;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--primary)"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+              Configuración del Sistema
+            </div>
+            <div class="panel-subtitle">Ajustes de conexión con la ESP32-CAM y parámetros bancarios</div>
+          </div>
+        </div>
+
+        <!-- ESP32-CAM Connection Settings Card -->
+        <div style="background: #0f172a; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.5rem;">
+          <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+            📡 Dirección IP de la ESP32-CAM
+          </h3>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Define la dirección IP asignada por tu red a la cámara. Dirección predeterminada: <code style="color:var(--primary); font-weight:bold; font-size: 0.9rem;">192.168.1.36</code>
+          </p>
+
+          <form onsubmit="handleSaveConfig(event)">
+            <div class="form-group">
+              <label class="form-label">Dirección IP del Dispositivo</label>
+              <input type="text" id="configEspIp" class="form-control" placeholder="192.168.1.36" value="192.168.1.36" required style="font-family: monospace; font-size: 1.05rem;">
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+              <button type="submit" class="btn-submit" style="width: auto; padding: 0.7rem 1.2rem;">
+                💾 Guardar Dirección IP
+              </button>
+              <button type="button" class="preset-btn" style="padding: 0.7rem 1rem;" onclick="testEspConnection()">
+                ⚡ Probar Conexión
+              </button>
+              <button type="button" class="preset-btn" style="padding: 0.7rem 1rem;" onclick="restoreDefaultIp()">
+                Restablecer a 192.168.1.36
+              </button>
+            </div>
+          </form>
+
+          <!-- Status badge in config -->
+          <div id="configStatusBox" style="padding: 0.75rem 1rem; border-radius: var(--radius-sm); background: #1e293b; border: 1px solid var(--surface-border); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span class="dot" id="configDot"></span>
+            <span id="configStatusText">IP Actual configurada: 192.168.1.36</span>
+          </div>
+
+          <!-- Live Preview mini box -->
+          <div style="margin-top: 1.25rem;">
+            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem;">Vista previa en vivo (Stream ESP32):</div>
+            <div class="camera-box" style="max-height: 200px; margin: 0;">
+              <img id="configStreamPreview" class="camera-stream" alt="Vista previa ESP32" crossorigin="anonymous">
+            </div>
+          </div>
+        </div>
+
+        <!-- Biometric & Bank Preferences -->
+        <div style="background: #0f172a; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.5rem;">
+          <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #fff;">
+            🛡️ Seguridad y Sensibilidad Biométrica
+          </h3>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Ajusta el porcentaje mínimo de coincidencia para autorizar transacciones de cobro.
+          </p>
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.3rem;">
+              <span>Umbral de Aprobación Biométrica:</span>
+              <strong id="lblThreshold" style="color: var(--primary);">70%</strong>
+            </div>
+            <input type="range" id="configThreshold" min="40" max="95" step="5" value="70" style="width: 100%; accent-color: var(--primary);" oninput="document.getElementById('lblThreshold').textContent = this.value + '%'; localStorage.setItem('banco_bio_threshold', this.value);">
+          </div>
+        </div>
+
+        <!-- System Maintenance / Demo Reset -->
+        <div style="background: #0f172a; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 1.25rem;">
+          <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #fff;">
+            ⚙️ Mantenimiento y Saldo de Prueba
+          </h3>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Recarga fondos a tu cuenta o reinicia los datos de demostración.
+          </p>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" class="preset-btn" style="padding: 0.6rem 1rem;" onclick="resetUserBalances()">
+              💰 Recargar 100 Bs. a mi saldo
+            </button>
+            <button type="button" class="preset-btn" style="padding: 0.6rem 1rem; border-color: var(--danger); color: var(--danger);" onclick="resetAllDemoData()">
+              ⚠️ Reiniciar cuentas y saldos
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- RECEIPT MODAL -->
+  <div id="receiptModal" class="modal-backdrop">
+    <div class="receipt-card">
+      <div id="receiptIcon" class="receipt-icon success">
+        <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      </div>
+      <div class="receipt-title" id="receiptStatusTitle">¡Transacción Exitosa!</div>
+      <div id="receiptSub" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">Comprobante de Operación</div>
+      <div class="receipt-amount" id="receiptAmount">Bs. 0,00</div>
+
+      <div class="receipt-details">
+        <div class="receipt-row">
+          <span>Referencia:</span>
+          <span id="receiptRef">#PM-000000</span>
+        </div>
+        <div class="receipt-row">
+          <span>Tipo de Operación:</span>
+          <span id="receiptType">Pago Móvil</span>
+        </div>
+        <div class="receipt-row">
+          <span>Deudor / Emisor:</span>
+          <span id="receiptPayer">-</span>
+        </div>
+        <div class="receipt-row">
+          <span>Beneficiario / Receptor:</span>
+          <span id="receiptReceiver">-</span>
+        </div>
+        <div class="receipt-row" id="receiptBioRow" style="display: none;">
+          <span>Coincidencia Biométrica:</span>
+          <span id="receiptBioScore" style="color: var(--primary);">94.5% (Aprobada)</span>
+        </div>
+        <div class="receipt-row">
+          <span>Fecha y Hora:</span>
+          <span id="receiptDate">26/10/2026 21:00</span>
+        </div>
+      </div>
+
+      <button type="button" class="btn-submit" onclick="closeReceiptModal()">
+        Aceptar y Continuar
+      </button>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast">Notificación</div>
+
+  <!-- LOGIC SCRIPT -->
+  <script>
+    /* =====================================================================
+       AUDIO FEEDBACK ENGINE (Pure Web Audio API - Zero external files)
+       ===================================================================== */
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      return audioCtx;
+    }
+
+    function playBeep(freq = 600, duration = 0.08, type = 'sine') {
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function playCameraShutterSound() {
+      playBeep(1200, 0.05, 'triangle');
+      setTimeout(() => playBeep(800, 0.08, 'square'), 60);
+    }
+
+    function playSuccessChime() {
+      playBeep(523.25, 0.1, 'sine'); // C5
+      setTimeout(() => playBeep(659.25, 0.1, 'sine'), 100); // E5
+      setTimeout(() => playBeep(783.99, 0.15, 'sine'), 200); // G5
+      setTimeout(() => playBeep(1046.50, 0.3, 'sine'), 320); // C6
+    }
+
+    function playErrorBuzz() {
+      playBeep(220, 0.15, 'sawtooth');
+      setTimeout(() => playBeep(160, 0.25, 'sawtooth'), 120);
+    }
+
+    /* =====================================================================
+       LOCAL STORAGE & USER DATABASE
+       ===================================================================== */
+    const STORAGE_KEY_USERS = "banco_esp32_users";
+    const STORAGE_KEY_TXS = "banco_esp32_txs";
+    const STORAGE_KEY_SESSION = "banco_esp32_session";
+
+    function initDatabase() {
+      if (!localStorage.getItem(STORAGE_KEY_USERS)) {
+        const defaultUsers = {
+          "cliente": { password: "123", balance: 100.00, fullName: "Cliente Demo" },
+          "comercio": { password: "123", balance: 100.00, fullName: "Comercio Principal" },
+          "admin": { password: "admin123", balance: 100.00, fullName: "Administrador" }
+        };
+        localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(defaultUsers));
+      }
+      if (!localStorage.getItem(STORAGE_KEY_TXS)) {
+        localStorage.setItem(STORAGE_KEY_TXS, JSON.stringify([]));
+      }
+    }
+
+    function getUsers() {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY_USERS) || "{}");
+    }
+
+    function saveUsers(users) {
+      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+    }
+
+    function getTransactions() {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY_TXS) || "[]");
+    }
+
+    function recordTransaction(tx) {
+      const txs = getTransactions();
+      tx.id = "TX-" + Math.floor(100000 + Math.random() * 900000);
+      tx.timestamp = new Date().toISOString();
+      txs.unshift(tx);
+      localStorage.setItem(STORAGE_KEY_TXS, JSON.stringify(txs));
+      return tx;
+    }
+
+    function getCurrentSession() {
+      return localStorage.getItem(STORAGE_KEY_SESSION);
+    }
+
+    function setCurrentSession(user) {
+      if (user) {
+        localStorage.setItem(STORAGE_KEY_SESSION, user);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_SESSION);
+      }
+    }
+
+    /* =====================================================================
+       UI TOAST
+       ===================================================================== */
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.borderLeftColor = isError ? 'var(--danger)' : 'var(--primary)';
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 3200);
+    }
+
+    /* =====================================================================
+       AUTH LOGIC
+       ===================================================================== */
+    function toggleAuth(mode) {
+      playBeep(450, 0.04);
+      document.getElementById('tabLoginBtn').classList.toggle('active', mode === 'login');
+      document.getElementById('tabRegisterBtn').classList.toggle('active', mode === 'register');
+      document.getElementById('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+      document.getElementById('registerForm').style.display = mode === 'register' ? 'block' : 'none';
+    }
+
+    function fillDemo(u, p) {
+      playBeep(550, 0.05);
+      toggleAuth('login');
+      document.getElementById('loginUser').value = u;
+      document.getElementById('loginPass').value = p;
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const user = document.getElementById('loginUser').value.trim().toLowerCase();
+      const pass = document.getElementById('loginPass').value.trim();
+
+      const users = getUsers();
+      if (!users[user]) {
+        playErrorBuzz();
+        showToast("El usuario '" + user + "' no existe. Por favor regístrate.", true);
+        return;
+      }
+
+      if (users[user].password !== pass) {
+        playErrorBuzz();
+        showToast("Contraseña incorrecta.", true);
+        return;
+      }
+
+      setCurrentSession(user);
+      playSuccessChime();
+      showToast("¡Bienvenido al banco, " + user + "!");
+      renderApp();
+    }
+
+    function handleRegister(e) {
+      e.preventDefault();
+      const user = document.getElementById('regUser').value.trim().toLowerCase();
+      const pass = document.getElementById('regPass').value.trim();
+      const passConfirm = document.getElementById('regPassConfirm').value.trim();
+
+      if (!user || !pass) {
+        showToast("Por favor llena todos los campos.", true);
+        return;
+      }
+
+      if (pass !== passConfirm) {
+        playErrorBuzz();
+        showToast("Las contraseñas no coinciden.", true);
+        return;
+      }
+
+      const users = getUsers();
+      if (users[user]) {
+        playErrorBuzz();
+        showToast("El usuario '" + user + "' ya se encuentra registrado.", true);
+        return;
+      }
+
+      // Initial balance of 100 Bolivares
+      users[user] = {
+        password: pass,
+        balance: 100.00,
+        fullName: user.toUpperCase(),
+        createdAt: new Date().toISOString()
+      };
+      saveUsers(users);
+
+      setCurrentSession(user);
+      playSuccessChime();
+      showToast("¡Cuenta creada! Has recibido un saldo de Bs. 100,00.");
+      renderApp();
+    }
+
+    function handleLogout() {
+      playBeep(350, 0.08);
+      stopCamera();
+      setCurrentSession(null);
+      renderApp();
+    }
+
+    /* =====================================================================
+       APP RENDERING & NAVIGATION
+       ===================================================================== */
+    function renderApp() {
+      const sessionUser = getCurrentSession();
+      const authSec = document.getElementById('authSection');
+      const bankSec = document.getElementById('bankAppSection');
+      const userHeader = document.getElementById('userHeaderSection');
+
+      if (!sessionUser) {
+        authSec.style.display = 'block';
+        bankSec.style.display = 'none';
+        userHeader.style.display = 'none';
+        stopCamera();
+        return;
+      }
+
+      const users = getUsers();
+      const currentUserData = users[sessionUser] || { balance: 100.00 };
+
+      authSec.style.display = 'none';
+      bankSec.style.display = 'block';
+      userHeader.style.display = 'flex';
+
+      document.getElementById('userNameDisplay').textContent = sessionUser;
+      document.getElementById('userAvatar').textContent = sessionUser.charAt(0).toUpperCase();
+      document.getElementById('currentBalanceDisplay').textContent = Number(currentUserData.balance).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      // Populate user suggestions datalist
+      const dl = document.getElementById('userList');
+      dl.innerHTML = '';
+      Object.keys(users).forEach(u => {
+        if (u !== sessionUser) {
+          const opt = document.createElement('option');
+          opt.value = u;
+          dl.appendChild(opt);
+        }
+      });
+
+      renderHistory();
+    }
+
+    function switchView(viewName) {
+      playBeep(500, 0.04);
+      document.getElementById('tabNavPagoMovil').classList.toggle('active', viewName === 'pagomovil');
+      document.getElementById('tabNavVenta').classList.toggle('active', viewName === 'venta');
+      const navEnrol = document.getElementById('tabNavEnrolar');
+      if (navEnrol) navEnrol.classList.toggle('active', viewName === 'enrolar');
+      document.getElementById('tabNavHistorial').classList.toggle('active', viewName === 'historial');
+      document.getElementById('tabNavConfig').classList.toggle('active', viewName === 'config');
+
+      document.getElementById('viewPagoMovil').style.display = viewName === 'pagomovil' ? 'block' : 'none';
+      document.getElementById('viewVenta').style.display = viewName === 'venta' ? 'block' : 'none';
+      const viewEnrol = document.getElementById('viewEnrolar');
+      if (viewEnrol) viewEnrol.style.display = viewName === 'enrolar' ? 'block' : 'none';
+      document.getElementById('viewHistorial').style.display = viewName === 'historial' ? 'block' : 'none';
+      document.getElementById('viewConfig').style.display = viewName === 'config' ? 'block' : 'none';
+
+      if (viewName === 'venta') {
+        startCamera();
+      } else if (viewName === 'config') {
+        loadConfigView();
+      } else {
+        stopCamera();
+        const cfgPrev = document.getElementById('configStreamPreview');
+        if (cfgPrev) cfgPrev.src = '';
+      }
+    }
+
+    /* =====================================================================
+       PAGO MÓVIL LOGIC
+       ===================================================================== */
+    function setPmAmount(amt) {
+      playBeep(600, 0.04);
+      document.getElementById('pmAmount').value = amt;
+      syncPmPresets(amt);
+    }
+
+    function syncPmPresets(val) {
+      val = Number(val);
+      const buttons = document.querySelectorAll('#pagoMovilForm .preset-btn');
+      buttons.forEach(btn => {
+        const amt = Number(btn.textContent.replace('Bs.', '').trim());
+        btn.classList.toggle('active', amt === val);
+      });
+    }
+
+    function handlePagoMovil(e) {
+      e.preventDefault();
+      const current = getCurrentSession();
+      const target = document.getElementById('pmTargetUser').value.trim().toLowerCase();
+      const amount = parseFloat(document.getElementById('pmAmount').value);
+      const concept = document.getElementById('pmConcept').value.trim() || "Pago Móvil";
+
+      if (!target || isNaN(amount) || amount <= 0) {
+        showToast("Ingresa un usuario y un monto válido.", true);
+        return;
+      }
+
+      if (target === current) {
+        playErrorBuzz();
+        showToast("No puedes transferirte saldo a ti mismo.", true);
+        return;
+      }
+
+      const users = getUsers();
+      if (!users[current]) {
+        showToast("Error de sesión.", true);
+        return;
+      }
+
+      if (Number(users[current].balance) < amount) {
+        playErrorBuzz();
+        showToast("Saldo insuficiente. Tu saldo es Bs. " + users[current].balance.toFixed(2), true);
+        return;
+      }
+
+      // If destination user does not exist in local db, register them automatically with initial balance!
+      if (!users[target]) {
+        users[target] = { password: "123", balance: 100.00, fullName: target.toUpperCase() };
+      }
+
+      // Debit & Credit
+      users[current].balance = Number(users[current].balance) - amount;
+      users[target].balance = Number(users[target].balance) + amount;
+      saveUsers(users);
+
+      // Record transaction
+      const tx = recordTransaction({
+        type: 'Pago Móvil',
+        sender: current,
+        receiver: target,
+        amount: amount,
+        concept: concept,
+        biometric: null,
+        status: 'Aprobada'
+      });
+
+      playSuccessChime();
+      document.getElementById('pmAmount').value = '';
+      document.getElementById('pmTargetUser').value = '';
+      document.getElementById('pmConcept').value = '';
+      syncPmPresets(0);
+      renderApp();
+
+      showReceipt({
+        title: "¡Pago Móvil Exitoso!",
+        ref: tx.id,
+        type: "Pago Móvil",
+        payer: current,
+        receiver: target,
+        amount: amount,
+        bioScore: null
+      });
+    }
+
+    /* =====================================================================
+       CAMERA ENGINE (ESP32 Stream & HTML5 WebCam Fallback)
+       ===================================================================== */
+    const STORAGE_KEY_ESP_IP = "banco_esp32_ip";
+    const DEFAULT_ESP_IP = "192.168.1.36";
+    let cameraMode = 'esp32'; // 'esp32' or 'webcam'
+    let mediaStream = null;
+
+    function cleanIpAddress(raw) {
+      if (!raw) return DEFAULT_ESP_IP;
+      let ip = raw.trim();
+      ip = ip.replace(/^https?:\/\//i, '');
+      ip = ip.replace(/\/.*$/, '');
+      ip = ip.replace(/:[0-9]+$/, '');
+      return ip.trim() || DEFAULT_ESP_IP;
+    }
+
+    function getEspCamIp() {
+      let saved = localStorage.getItem(STORAGE_KEY_ESP_IP);
+      if (!saved) {
+        if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' && window.location.hostname.includes('.')) {
+          saved = window.location.hostname;
+        } else {
+          saved = DEFAULT_ESP_IP;
+        }
+      }
+      return cleanIpAddress(saved);
+    }
+
+    function saveEspCamIp(ip) {
+      const cleaned = cleanIpAddress(ip);
+      localStorage.setItem(STORAGE_KEY_ESP_IP, cleaned);
+      return cleaned;
+    }
+
+    function connectEspCamIp() {
+      playBeep(650, 0.05);
+      const input = document.getElementById('espCamIpInput');
+      const ip = saveEspCamIp(input ? input.value : '');
+      if (input) input.value = ip;
+
+      // Sync config input as well
+      const cfgInput = document.getElementById('configEspIp');
+      if (cfgInput) cfgInput.value = ip;
+
+      cameraMode = 'esp32';
+      updateCameraModeUI();
+      startCamera();
+      showToast("Conectando cámara ESP32 en IP: " + ip);
+    }
+
+    /* =====================================================================
+       CONFIGURACIÓN VIEW HANDLERS
+       ===================================================================== */
+    function loadConfigView() {
+      const ip = getEspCamIp();
+      const cfgInput = document.getElementById('configEspIp');
+      if (cfgInput) cfgInput.value = ip;
+
+      const thresh = localStorage.getItem('banco_bio_threshold') || "70";
+      const threshInput = document.getElementById('configThreshold');
+      const threshLbl = document.getElementById('lblThreshold');
+      if (threshInput) threshInput.value = thresh;
+      if (threshLbl) threshLbl.textContent = thresh + "%";
+
+      updateConfigStatus(ip);
+      const cfgPrev = document.getElementById('configStreamPreview');
+      if (cfgPrev) {
+        cfgPrev.src = 'http://' + ip + ':81/stream';
+      }
+    }
+
+    function updateConfigStatus(ip, isSuccess = null) {
+      const dot = document.getElementById('configDot');
+      const txt = document.getElementById('configStatusText');
+      if (!txt) return;
+
+      if (isSuccess === true) {
+        if (dot) dot.className = 'dot';
+        txt.textContent = "🟢 Conexión exitosa con ESP32-CAM (" + ip + ")";
+      } else if (isSuccess === false) {
+        if (dot) dot.className = 'dot red';
+        txt.textContent = "🔴 No responde http://" + ip + " (Verifica la IP y la red Wi-Fi)";
+      } else {
+        if (dot) dot.className = 'dot';
+        txt.textContent = "IP Actual configurada: " + ip;
+      }
+    }
+
+    function handleSaveConfig(e) {
+      e.preventDefault();
+      playBeep(650, 0.05);
+      const input = document.getElementById('configEspIp');
+      const ip = saveEspCamIp(input ? input.value : '');
+
+      const compareInput = document.getElementById('espCamIpInput');
+      if (compareInput) compareInput.value = ip;
+
+      loadConfigView();
+      updateCameraModeUI();
+      playSuccessChime();
+      showToast("Configuración guardada. IP: " + ip);
+    }
+
+    function testEspConnection() {
+      playBeep(600, 0.05);
+      const input = document.getElementById('configEspIp');
+      const ip = cleanIpAddress(input ? input.value : '');
+      const txt = document.getElementById('configStatusText');
+      if (txt) txt.textContent = "Probando conexión con http://" + ip + "...";
+
+      const testImg = new Image();
+      testImg.crossOrigin = 'anonymous';
+
+      const timer = setTimeout(() => {
+        updateConfigStatus(ip, false);
+        showToast("Tiempo de espera agotado al conectar a " + ip, true);
+      }, 3000);
+
+      testImg.onload = function() {
+        clearTimeout(timer);
+        updateConfigStatus(ip, true);
+        playSuccessChime();
+        showToast("¡Conexión exitosa con la cámara ESP32 (" + ip + ")!");
+        const cfgPrev = document.getElementById('configStreamPreview');
+        if (cfgPrev) cfgPrev.src = 'http://' + ip + ':81/stream';
+      };
+
+      testImg.onerror = function() {
+        clearTimeout(timer);
+        updateConfigStatus(ip, false);
+        playErrorBuzz();
+        showToast("Error al conectar con " + ip, true);
+      };
+
+      testImg.src = 'http://' + ip + '/capture?_t=' + Date.now();
+    }
+
+    function restoreDefaultIp() {
+      playBeep(500, 0.04);
+      saveEspCamIp(DEFAULT_ESP_IP);
+      const cfgInput = document.getElementById('configEspIp');
+      if (cfgInput) cfgInput.value = DEFAULT_ESP_IP;
+      const compareInput = document.getElementById('espCamIpInput');
+      if (compareInput) compareInput.value = DEFAULT_ESP_IP;
+      loadConfigView();
+      updateCameraModeUI();
+      showToast("IP restablecida a " + DEFAULT_ESP_IP);
+    }
+
+    function resetUserBalances() {
+      playBeep(700, 0.08);
+      const current = getCurrentSession();
+      if (!current) return;
+      const users = getUsers();
+      if (users[current]) {
+        users[current].balance = Number(users[current].balance) + 100.00;
+        saveUsers(users);
+        recordTransaction({
+          type: 'Recarga de Saldo',
+          sender: 'Banco Central',
+          receiver: current,
+          amount: 100.00,
+          concept: 'Recarga desde Configuración',
+          biometric: null,
+          status: 'Aprobada'
+        });
+        renderApp();
+        playSuccessChime();
+        showToast("¡Has recibido 100,00 Bs. adicionales!");
+      }
+    }
+
+    function resetAllDemoData() {
+      if (confirm("¿Estás seguro de restablecer todos los usuarios y saldos a sus valores iniciales?")) {
+        playBeep(300, 0.1);
+        localStorage.removeItem(STORAGE_KEY_USERS);
+        localStorage.removeItem(STORAGE_KEY_TXS);
+        initDatabase();
+        renderApp();
+        showToast("Base de datos de prueba restablecida.");
+      }
+    }
+
+    function updateCameraModeUI() {
+      const isEsp = cameraMode === 'esp32';
+      const ip = getEspCamIp();
+
+      const label = document.getElementById('camSourceLabel');
+      if (label) {
+        label.textContent = isEsp ? "ESP32 Cam Stream (" + ip + ")" : "WebCam / Dispositivo";
+      }
+
+      const btnToggle = document.getElementById('btnCompareSourceToggle');
+      if (btnToggle) {
+        btnToggle.textContent = isEsp ? "🔄 Alternar a WebCam" : "🔄 Alternar a ESP32 Cam";
+      }
+
+      const dot = document.getElementById('espIpDot');
+      const statusText = document.getElementById('espIpStatusText');
+      if (statusText) {
+        if (isEsp) {
+          statusText.textContent = "Cámara ESP32 configurada en: http://" + ip + ":81/stream";
+          if (dot) dot.classList.remove('red');
+        } else {
+          statusText.textContent = "Modo WebCam activa (ESP32 en pausa)";
+          if (dot) dot.classList.remove('red');
+        }
+      }
+
+      const input = document.getElementById('espCamIpInput');
+      if (input && !input.value) {
+        input.value = ip;
+      }
+    }
+
+    function toggleCameraSource() {
+      playBeep(650, 0.05);
+      if (cameraMode === 'webcam') {
+        cameraMode = 'esp32';
+      } else {
+        cameraMode = 'webcam';
+      }
+      updateCameraModeUI();
+      startCamera();
+    }
+
+    function startCamera() {
+      const espImg = document.getElementById('esp32StreamImg');
+      const espImgCmp = document.getElementById('esp32StreamImgCompare');
+      const webVideo = document.getElementById('webcamVideo');
+      const webVideoCmp = document.getElementById('webcamVideoCompare');
+      const dot = document.getElementById('camStatusDot');
+      const txt = document.getElementById('camStatusText');
+      const espDot = document.getElementById('espIpDot');
+      const espTxt = document.getElementById('espIpStatusText');
+
+      const ipInput = document.getElementById('espCamIpInput');
+      const ip = getEspCamIp();
+      if (ipInput && (!ipInput.value || ipInput.value === '192.168.1.50')) {
+        ipInput.value = ip;
+      }
+
+      if (cameraMode === 'esp32') {
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(t => t.stop());
+          mediaStream = null;
+        }
+
+        const streamUrl = 'http://' + ip + ':81/stream';
+        espImg.crossOrigin = 'anonymous';
+        espImgCmp.crossOrigin = 'anonymous';
+
+        const onStreamLoad = function() {
+          if (dot) dot.classList.remove('red');
+          if (txt) txt.textContent = "ESP32 Cam Conectada (" + ip + ")";
+          if (espDot) espDot.classList.remove('red');
+          if (espTxt) espTxt.textContent = "🟢 Stream ESP32 activo: " + streamUrl;
+        };
+
+        const onStreamError = function() {
+          if (dot) dot.classList.add('red');
+          if (txt) txt.textContent = "ESP32 Desconectada (" + ip + ")";
+          if (espDot) espDot.classList.add('red');
+          if (espTxt) espTxt.textContent = "🔴 Error al conectar con " + streamUrl + " (Revisa la IP y la red Wi-Fi)";
+        };
+
+        espImg.onload = onStreamLoad;
+        espImg.onerror = onStreamError;
+        espImgCmp.onload = onStreamLoad;
+        espImgCmp.onerror = onStreamError;
+
+        espImg.src = streamUrl;
+        espImgCmp.src = streamUrl;
+        espImg.style.display = 'block';
+        espImgCmp.style.display = 'block';
+        webVideo.style.display = 'none';
+        webVideoCmp.style.display = 'none';
+
+        if (dot) dot.classList.remove('red');
+        if (txt) txt.textContent = "Conectando ESP32 Cam (" + ip + ")...";
+      } else {
+        espImg.style.display = 'none';
+        espImgCmp.style.display = 'none';
+        espImg.src = '';
+        espImgCmp.src = '';
+        webVideo.style.display = 'block';
+        webVideoCmp.style.display = 'block';
+
+        if (!mediaStream) {
+          navigator.mediaDevices?.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } })
+            .then(stream => {
+              mediaStream = stream;
+              webVideo.srcObject = stream;
+              webVideoCmp.srcObject = stream;
+              if (dot) dot.classList.remove('red');
+              if (txt) txt.textContent = "Cámara Web Activa";
+              if (espDot) espDot.classList.remove('red');
+              if (espTxt) espTxt.textContent = "Modo WebCam activa del dispositivo";
+            })
+            .catch(err => {
+              console.warn("Webcam error:", err);
+              if (dot) dot.classList.add('red');
+              if (txt) txt.textContent = "Cámara No Disponible";
+            });
+        }
+      }
+      updateCameraModeUI();
+    }
+
+    function stopCamera() {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      const espImg = document.getElementById('esp32StreamImg');
+      const espImgCmp = document.getElementById('esp32StreamImgCompare');
+      if (espImg) espImg.src = '';
+      if (espImgCmp) espImgCmp.src = '';
+    }
+
+    /* =====================================================================
+       VENTA (POS) & BIOMETRIC COMPARISON LOGIC
+       ===================================================================== */
+    let ventaPendingUser = "";
+    let ventaPendingAmount = 0;
+    let sample1Captured = false;
+    let sample2Captured = false;
+
+    function setVentaAmount(amt) {
+      playBeep(600, 0.04);
+      document.getElementById('ventaAmount').value = amt;
+      syncVentaPresets(amt);
+    }
+
+    function syncVentaPresets(val) {
+      val = Number(val);
+      const buttons = document.querySelectorAll('#ventaForm .preset-btn');
+      buttons.forEach(btn => {
+        const amt = Number(btn.textContent.replace('Bs.', '').trim());
+        btn.classList.toggle('active', amt === val);
+      });
+    }
+
+    function handleProceedToCompare(e) {
+      e.preventDefault();
+      const current = getCurrentSession();
+      const client = document.getElementById('ventaClientUser').value.trim().toLowerCase();
+      const amount = parseFloat(document.getElementById('ventaAmount').value);
+
+      if (!client || isNaN(amount) || amount <= 0) {
+        showToast("Por favor coloca el usuario y un monto válido a cobrar.", true);
+        return;
+      }
+
+      if (client === current) {
+        playErrorBuzz();
+        showToast("No puedes cobrarte a tu propia cuenta.", true);
+        return;
+      }
+
+      ventaPendingUser = client;
+      ventaPendingAmount = amount;
+
+      // Transition to compare step
+      playBeep(700, 0.08);
+      document.getElementById('ventaStepSetup').style.display = 'none';
+      document.getElementById('ventaStepCompare').style.display = 'block';
+
+      document.getElementById('lblCompareUser').textContent = "@" + client;
+      document.getElementById('lblCompareAmount').textContent = "Bs. " + amount.toFixed(2);
+
+      // Pre-fill IP input and start camera
+      const ipInput = document.getElementById('espCamIpInput');
+      if (ipInput) ipInput.value = getEspCamIp();
+      updateCameraModeUI();
+      startCamera();
+
+      // Reset captures
+      resetCaptures();
+    }
+
+    function backToVentaSetup() {
+      playBeep(450, 0.05);
+      document.getElementById('ventaStepCompare').style.display = 'none';
+      document.getElementById('ventaStepSetup').style.display = 'block';
+    }
+
+    function resetCaptures() {
+      sample1Captured = false;
+      sample2Captured = false;
+
+      document.getElementById('canvasCapture1').style.display = 'none';
+      document.getElementById('placeholderCap1').style.display = 'flex';
+      document.getElementById('badgeCap1').className = 'badge badge-pending';
+      document.getElementById('badgeCap1').textContent = 'Sin Captura';
+
+      document.getElementById('canvasCapture2').style.display = 'none';
+      document.getElementById('placeholderCap2').style.display = 'flex';
+      document.getElementById('badgeCap2').className = 'badge badge-pending';
+      document.getElementById('badgeCap2').textContent = 'Sin Captura';
+
+      document.getElementById('compareResultBox').style.display = 'none';
+      document.getElementById('btnRunComparison').disabled = true;
+    }
+
+    function finishCapture(sampleIndex, canvas, placeholder, badge) {
+      canvas.style.display = 'block';
+      placeholder.style.display = 'none';
+      badge.className = 'badge badge-success';
+      badge.textContent = 'Muestra ' + sampleIndex + ' Lista';
+
+      if (sampleIndex === 1) sample1Captured = true;
+      if (sampleIndex === 2) sample2Captured = true;
+
+      if (sample1Captured && sample2Captured) {
+        document.getElementById('btnRunComparison').disabled = false;
+        playBeep(850, 0.08);
+      }
+    }
+
+    function fallbackCapture(sampleIndex, canvas, ctx) {
+      canvas.width = 320;
+      canvas.height = 240;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 320, 240);
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(160, 120, 60, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Captura Biometría ' + sampleIndex, 160, 125);
+    }
+
+    // Capture from camera feed onto canvas
+    function captureSample(sampleIndex) {
+      playCameraShutterSound();
+      const canvas = document.getElementById(sampleIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
+      const placeholder = document.getElementById(sampleIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
+      const badge = document.getElementById(sampleIndex === 1 ? 'badgeCap1' : 'badgeCap2');
+      const ctx = canvas.getContext('2d');
+
+      const video = document.getElementById('webcamVideoCompare');
+      const espImg = document.getElementById('esp32StreamImgCompare');
+
+      if (cameraMode === 'esp32') {
+        const ip = getEspCamIp();
+        badge.className = 'badge badge-pending';
+        badge.textContent = 'Capturando ESP32...';
+
+        // Intenta obtener captura de alta calidad directa desde /capture del ESP32
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        const timer = setTimeout(() => {
+          try {
+            if (espImg && espImg.naturalWidth) {
+              canvas.width = 320;
+              canvas.height = 240;
+              ctx.drawImage(espImg, 0, 0, 320, 240);
+            } else {
+              fallbackCapture(sampleIndex, canvas, ctx);
+            }
+          } catch(e) {
+            fallbackCapture(sampleIndex, canvas, ctx);
+          }
+          finishCapture(sampleIndex, canvas, placeholder, badge);
+        }, 2200);
+
+        img.onload = function() {
+          clearTimeout(timer);
+          canvas.width = 320;
+          canvas.height = 240;
+          ctx.drawImage(img, 0, 0, 320, 240);
+          finishCapture(sampleIndex, canvas, placeholder, badge);
+        };
+
+        img.onerror = function() {
+          clearTimeout(timer);
+          try {
+            if (espImg && espImg.naturalWidth) {
+              canvas.width = 320;
+              canvas.height = 240;
+              ctx.drawImage(espImg, 0, 0, 320, 240);
+            } else {
+              fallbackCapture(sampleIndex, canvas, ctx);
+            }
+          } catch(e) {
+            fallbackCapture(sampleIndex, canvas, ctx);
+          }
+          finishCapture(sampleIndex, canvas, placeholder, badge);
+        };
+
+        img.src = 'http://' + ip + '/capture?_t=' + Date.now();
+        return;
+      }
+
+      // Modo WebCam local
+      if (cameraMode === 'webcam' && video && video.videoWidth) {
+        canvas.width = 320;
+        canvas.height = 240;
+        ctx.drawImage(video, 0, 0, 320, 240);
+        finishCapture(sampleIndex, canvas, placeholder, badge);
+      } else {
+        fallbackCapture(sampleIndex, canvas, ctx);
+        finishCapture(sampleIndex, canvas, placeholder, badge);
+      }
+    }
+
+    function captureBothAuto() {
+      captureSample(1);
+      setTimeout(() => {
+        captureSample(2);
+      }, 700);
+    }
+
+
+    /* =====================================================================
+       ESP32 CAPTURE & CLIPBOARD PASTE HELPERS (BIOPAGO VASCULAR)
+       ===================================================================== */
+    async function extractLatestEsp32Photo(sampleIndex) {
+      playBeep(750, 0.05);
+      const badge = document.getElementById(sampleIndex === 1 ? 'badgeCap1' : 'badgeCap2');
+      badge.className = 'badge badge-pending';
+      badge.textContent = 'Consultando ESP32...';
+
+      try {
+        const res = await fetch('/api/v1/latest-image?format=json');
+        if (!res.ok) throw new Error("No hay foto reciente");
+        const data = await res.json();
+        if (!data.image_b64) throw new Error("Imagen vacía");
+
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.getElementById(sampleIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
+          const placeholder = document.getElementById(sampleIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
+          const ctx = canvas.getContext('2d');
+          canvas.width = 320;
+          canvas.height = 240;
+          ctx.drawImage(img, 0, 0, 320, 240);
+          finishCapture(sampleIndex, canvas, placeholder, badge);
+          playSuccessChime();
+          showToast(`Foto del ESP32 cargada en Muestra ${sampleIndex}!`);
+        };
+        img.src = data.image_b64;
+      } catch (err) {
+        playErrorBuzz();
+        badge.className = 'badge badge-error';
+        badge.textContent = 'Sin captura nueva';
+        showToast("No hay capturas disponibles del ESP32 en caché todavía.", true);
+      }
+    }
+
+    function handleFileUpload(event, sampleIndex) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      playBeep(600, 0.05);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.getElementById(sampleIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
+          const placeholder = document.getElementById(sampleIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
+          const badge = document.getElementById(sampleIndex === 1 ? 'badgeCap1' : 'badgeCap2');
+          const ctx = canvas.getContext('2d');
+          canvas.width = 320;
+          canvas.height = 240;
+          ctx.drawImage(img, 0, 0, 320, 240);
+          finishCapture(sampleIndex, canvas, placeholder, badge);
+          playSuccessChime();
+          showToast(`Archivo cargado en Muestra ${sampleIndex}!`);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Global Clipboard Paste Listener
+    window.addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile();
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              // Si estamos en la vista de venta, cargar en Muestra 1 o 2
+              const viewVenta = document.getElementById('viewVenta');
+              if (viewVenta && viewVenta.style.display !== 'none') {
+                const targetIndex = sample1Captured ? 2 : 1;
+                const canvas = document.getElementById(targetIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
+                const placeholder = document.getElementById(targetIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
+                const badge = document.getElementById(targetIndex === 1 ? 'badgeCap1' : 'badgeCap2');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 320;
+                canvas.height = 240;
+                ctx.drawImage(img, 0, 0, 320, 240);
+                finishCapture(targetIndex, canvas, placeholder, badge);
+                playSuccessChime();
+                showToast(`Foto pegada (Ctrl+V) en Muestra ${targetIndex}!`);
+                return;
+              }
+
+              // Si estamos en la vista de enrolamiento, cargar en el primer slot pendiente
+              const viewEnrol = document.getElementById('viewEnrolar');
+              if (viewEnrol && viewEnrol.style.display !== 'none') {
+                for (let slot = 1; slot <= 5; slot++) {
+                  if (!enrolSlotsReady[slot]) {
+                    setEnrolSlotImage(slot, img);
+                    playSuccessChime();
+                    showToast(`Foto pegada en Muestra ${slot} de enrolamiento!`);
+                    break;
+                  }
+                }
+              }
+            };
+            img.src = event.target.result;
+          };
+          reader.readAsDataURL(blob);
+          break;
+        }
+      }
+    });
+
+    /* =====================================================================
+       ENROLAMIENTO DE 5 MUESTRAS LOGIC
+       ===================================================================== */
+    const enrolSlotsReady = { 1: false, 2: false, 3: false, 4: false, 5: false };
+
+    function setEnrolSlotImage(slot, img) {
+      const canvas = document.getElementById('canvasEnrol' + slot);
+      const ph = document.getElementById('phEnrol' + slot);
+      const badge = document.getElementById('badgeEnrol' + slot);
+      const ctx = canvas.getContext('2d');
+      canvas.width = 160;
+      canvas.height = 120;
+      ctx.drawImage(img, 0, 0, 160, 120);
+      canvas.style.display = 'block';
+      ph.style.display = 'none';
+      badge.className = 'badge badge-success';
+      badge.textContent = 'Muestra ' + slot + ' Lista';
+      enrolSlotsReady[slot] = true;
+    }
+
+    async function extractEsp32ForEnrol(slot) {
+      playBeep(700, 0.05);
+      try {
+        const res = await fetch('/api/v1/latest-image?format=json');
+        if (!res.ok) throw new Error("Sin foto");
+        const data = await res.json();
+        const img = new Image();
+        img.onload = () => {
+          setEnrolSlotImage(slot, img);
+          playSuccessChime();
+          showToast(`Foto del ESP32 asignada a Muestra ${slot}!`);
+        };
+        img.src = data.image_b64;
+      } catch (e) {
+        playErrorBuzz();
+        showToast("No hay capturas del ESP32 en caché.", true);
+      }
+    }
+
+    function handleEnrolFileUpload(event, slot) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      playBeep(600, 0.05);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          setEnrolSlotImage(slot, img);
+          playSuccessChime();
+          showToast(`Muestra ${slot} cargada.`);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function handleEnrollmentSubmit(e) {
+      e.preventDefault();
+      const cedula = document.getElementById('enrolCedula').value.trim().toUpperCase();
+      if (!cedula) {
+        showToast("Ingresa la Cédula a registrar.", true);
+        return;
+      }
+
+      for (let s = 1; s <= 5; s++) {
+        if (!enrolSlotsReady[s]) {
+          playErrorBuzz();
+          showToast(`Falta capturar la Muestra ${s}. Se requieren las 5 fotos.`, true);
+          return;
+        }
+      }
+
+      playBeep(750, 0.08);
+      const btn = document.getElementById('btnSubmitEnrol');
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Guardando en Motor Biométrico...';
+
+      let successCount = 0;
+      for (let s = 1; s <= 5; s++) {
+        const canvas = document.getElementById('canvasEnrol' + s);
+        const b64 = canvas.toDataURL('image/jpeg', 0.95);
+        try {
+          const res = await fetch('/api/v1/enroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cedula: cedula, sample_idx: s, image_b64: b64 })
+          });
+          const data = await res.json();
+          if (data.status === 'success') successCount++;
+        } catch(err) {
+          console.error("Error enrolando muestra " + s, err);
+        }
+      }
+
+      btn.disabled = false;
+      btn.innerHTML = '🔒 Guardar Enrolamiento en Base de Datos';
+
+      if (successCount >= 3) {
+        playSuccessChime();
+        showToast(`¡Cliente ${cedula} enrolado exitosamente (${successCount}/5 muestras)!`);
+        
+        // Auto-crear usuario en el banco si no existe
+        const users = getUsers();
+        if (!users[cedula.toLowerCase()]) {
+          users[cedula.toLowerCase()] = { password: "123", balance: 100.00, fullName: "TITULAR C.I. " + cedula };
+          saveUsers(users);
+        }
+        renderApp();
+      } else {
+        playErrorBuzz();
+        showToast("Error al guardar muestras. Verifica la calidad de la imagen.", true);
+      }
+    }
+
+    /* =====================================================================
+       IMAGE COMPARISON ALGORITHM (Mean Squared Error & Histogram Matching)
+       ===================================================================== */
+    function computeImageSimilarity(canvasA, canvasB) {
+      const size = 64; // downscale for fast and robust comparison
+      const tempA = document.createElement('canvas');
+      const tempB = document.createElement('canvas');
+      tempA.width = size; tempA.height = size;
+      tempB.width = size; tempB.height = size;
+
+      const ctxA = tempA.getContext('2d');
+      const ctxB = tempB.getContext('2d');
+      ctxA.drawImage(canvasA, 0, 0, size, size);
+      ctxB.drawImage(canvasB, 0, 0, size, size);
+
+      const dataA = ctxA.getImageData(0, 0, size, size).data;
+      const dataB = ctxB.getImageData(0, 0, size, size).data;
+
+      let totalDiff = 0;
+      const numPixels = size * size;
+
+      for (let i = 0; i < dataA.length; i += 4) {
+        // Luminance conversion: Y = 0.299R + 0.587G + 0.114B
+        const lumA = 0.299 * dataA[i] + 0.587 * dataA[i + 1] + 0.114 * dataA[i + 2];
+        const lumB = 0.299 * dataB[i] + 0.587 * dataB[i + 1] + 0.114 * dataB[i + 2];
+        totalDiff += Math.abs(lumA - lumB);
+      }
+
+      const meanDiff = totalDiff / numPixels; // range 0 to 255
+      const similarity = Math.max(0, Math.min(100, (1 - (meanDiff / 100)) * 100));
+      return Math.round(similarity * 10) / 10;
+    }
+
+    async function processBiometricComparison() {
+      if (!sample1Captured && !sample2Captured) {
+        showToast("Debes capturar o subir al menos una foto para verificar.", true);
+        return;
+      }
+
+      playBeep(700, 0.08);
+      const btn = document.getElementById('btnRunComparison');
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Analizando Curvatura Vascular...';
+
+      const c1 = document.getElementById('canvasCapture1');
+      const c2 = document.getElementById('canvasCapture2');
+      const targetUser = (ventaPendingUser || "").trim().toUpperCase();
+
+      // Muestra más reciente
+      const activeCanvas = sample2Captured ? c2 : c1;
+      const imgBase64 = activeCanvas.toDataURL('image/jpeg', 0.95);
+
+      try {
+        let res = null;
+        let data = null;
+
+        // Si tenemos Muestra 1 y Muestra 2 cargadas, también enviamos al motor 1:1
+        if (sample1Captured && sample2Captured) {
+          const img1 = c1.toDataURL('image/jpeg', 0.95);
+          const img2 = c2.toDataURL('image/jpeg', 0.95);
+          res = await fetch('/api/v1/compare-two', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image1_b64: img1, image2_b64: img2 })
+          });
+          data = await res.json();
+        } else {
+          // Verificación contra la base de datos de huellas registradas del banco
+          res = await fetch('/api/v1/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cedula: targetUser, image_b64: imgBase64 })
+          });
+          data = await res.json();
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Comparar Imágenes y Cobrar';
+
+        if (res.status >= 400 || data.detail) {
+          showToast(data.detail || "Error en el servidor biométrico", true);
+          return;
+        }
+
+        const score = data.percentage !== undefined ? data.percentage : (data.score * 100);
+        const isAuth = data.authenticated;
+        displayComparisonResult(score, isAuth, data.vascular_map_b64, data.verdict || data.message);
+
+      } catch (err) {
+        console.warn("Backend no disponible, usando algoritmo local:", err);
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Comparar Imágenes y Cobrar';
+        const fallbackScore = computeImageSimilarity(c1, c2);
+        displayComparisonResult(fallbackScore, fallbackScore >= 40.0, null, null);
+      }
+    }
+
+    function simulateMatch(shouldMatch) {
+      captureBothAuto();
+      setTimeout(() => {
+        const score = shouldMatch ? (82 + Math.floor(Math.random() * 12)) : (13 + Math.floor(Math.random() * 12));
+        displayComparisonResult(score, shouldMatch, null, shouldMatch ? "🟢 IDENTIDAD CONFIRMADA" : "🔴 IDENTIDAD NO COINCIDE");
+      }, 800);
+    }
+
+    function displayComparisonResult(score, isAuth, vascularMapB64 = null, verdictMsg = null) {
+      const resultBox = document.getElementById('compareResultBox');
+      const scoreTxt = document.getElementById('simScoreText');
+      const bar = document.getElementById('simProgressBar');
+      const msg = document.getElementById('simMessage');
+      const vBox = document.getElementById('vascularMapBox');
+      const vImg = document.getElementById('imgVascularMap');
+
+      resultBox.style.display = 'block';
+      scoreTxt.textContent = score + "%";
+      bar.style.width = Math.min(100, Math.max(0, score)) + "%";
+
+      if (vascularMapB64 && vBox && vImg) {
+        vImg.src = vascularMapB64;
+        vBox.style.display = 'block';
+      } else if (vBox) {
+        vBox.style.display = 'none';
+      }
+
+      if (isAuth) {
+        scoreTxt.style.color = 'var(--primary)';
+        bar.style.background = 'var(--primary)';
+        msg.innerHTML = "✅ <strong>¡IDENTIDAD CONFIRMADA (" + score + "%)!</strong><br>" + (verdictMsg || "Patrón vascular coincide con el titular.") + "<br>Procesando cobro en Bolívares...";
+        playSuccessChime();
+
+        setTimeout(() => {
+          finalizeVentaCharge(score);
+        }, 1400);
+      } else {
+        scoreTxt.style.color = 'var(--danger)';
+        bar.style.background = 'var(--danger)';
+        msg.innerHTML = "❌ <strong>DISCREPANCIA DETECTADA (" + score + "% < 40%)</strong><br>" + (verdictMsg || "Dedo no coincide con el titular registrado.") + "<br>Transacción denegada por seguridad.";
+        playErrorBuzz();
+
+        const tx = recordTransaction({
+          type: 'Cobro Biométrico',
+          sender: ventaPendingUser,
+          receiver: getCurrentSession(),
+          amount: ventaPendingAmount,
+          concept: 'Venta POS rechazada (Biometría no coincide)',
+          biometric: score + "% (Rechazada)",
+          status: 'Rechazada'
+        });
+        renderHistory();
+      }
+    }
+
+    function finalizeVentaCharge(bioScore) {
+      const merchant = getCurrentSession();
+      const client = ventaPendingUser;
+      const amount = ventaPendingAmount;
+
+      const users = getUsers();
+
+      // Check if client exists
+      if (!users[client]) {
+        users[client] = { password: "123", balance: 100.00, fullName: client.toUpperCase() };
+      }
+
+      // Check client balance
+      if (Number(users[client].balance) < amount) {
+        playErrorBuzz();
+        showToast("Biometría aprobada, pero @" + client + " tiene saldo insuficiente (Bs. " + users[client].balance.toFixed(2) + ").", true);
+        return;
+      }
+
+      // Execute transaction: debit client, credit merchant
+      users[client].balance = Number(users[client].balance) - amount;
+      users[merchant].balance = Number(users[merchant].balance) + amount;
+      saveUsers(users);
+
+      const tx = recordTransaction({
+        type: 'Cobro Biométrico POS',
+        sender: client,
+        receiver: merchant,
+        amount: amount,
+        concept: 'Venta por Reconocimiento Biométrico',
+        biometric: bioScore + "%",
+        status: 'Aprobada'
+      });
+
+      renderApp();
+      backToVentaSetup();
+
+      showReceipt({
+        title: "¡Cobro Biométrico Exitoso!",
+        ref: tx.id,
+        type: "Cobro Biométrico",
+        payer: client,
+        receiver: merchant,
+        amount: amount,
+        bioScore: bioScore + "% (Coincidente)"
+      });
+    }
+
+    /* =====================================================================
+       RECEIPT MODAL
+       ===================================================================== */
+    function showReceipt(data) {
+      document.getElementById('receiptStatusTitle').textContent = data.title;
+      document.getElementById('receiptRef').textContent = data.ref;
+      document.getElementById('receiptType').textContent = data.type;
+      document.getElementById('receiptPayer').textContent = "@" + data.payer;
+      document.getElementById('receiptReceiver').textContent = "@" + data.receiver;
+      document.getElementById('receiptAmount').textContent = "Bs. " + Number(data.amount).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      const bioRow = document.getElementById('receiptBioRow');
+      if (data.bioScore) {
+        bioRow.style.display = 'flex';
+        document.getElementById('receiptBioScore').textContent = data.bioScore;
+      } else {
+        bioRow.style.display = 'none';
+      }
+
+      const now = new Date();
+      document.getElementById('receiptDate').textContent = now.toLocaleDateString('es-VE') + " " + now.toLocaleTimeString('es-VE');
+
+      document.getElementById('receiptModal').style.display = 'flex';
+    }
+
+    function closeReceiptModal() {
+      playBeep(450, 0.05);
+      document.getElementById('receiptModal').style.display = 'none';
+    }
+
+    /* =====================================================================
+       HISTORY DISPLAY
+       ===================================================================== */
+    function renderHistory() {
+      const sessionUser = getCurrentSession();
+      if (!sessionUser) return;
+
+      const container = document.getElementById('historyList');
+      const txs = getTransactions();
+      container.innerHTML = '';
+
+      const userTxs = txs.filter(t => t.sender === sessionUser || t.receiver === sessionUser);
+
+      if (userTxs.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem;">No hay transacciones registradas aún.</div>';
+        return;
+      }
+
+      userTxs.forEach(t => {
+        const isIncoming = t.receiver === sessionUser;
+        const isApproved = t.status === 'Aprobada';
+
+        const item = document.createElement('div');
+        item.className = 'history-item';
+
+        const iconColor = !isApproved ? 'var(--danger)' : (isIncoming ? 'var(--primary)' : 'var(--secondary)');
+        const iconSvg = isIncoming
+          ? '<path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>'
+          : '<path d="M9 16h4V10h4L12 3 7 10h4v6zm-4 2v2h14v-2H5z"/>';
+
+        const amtSign = isIncoming ? '+ ' : '- ';
+        const amtClass = isIncoming ? 'amount-in' : 'amount-out';
+
+        const dateStr = new Date(t.timestamp).toLocaleString('es-VE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        item.innerHTML = `
+          <div class="history-item-left">
+            <div class="history-icon" style="background: rgba(255,255,255,0.06); color: ${iconColor};">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">${iconSvg}</svg>
+            </div>
+            <div>
+              <div class="history-desc">${t.type} ${!isApproved ? '<span class="badge badge-error">Rechazada</span>' : ''}</div>
+              <div class="history-date">${dateStr} • ${isIncoming ? 'De: @' + t.sender : 'Para: @' + t.receiver}</div>
+            </div>
+          </div>
+          <div>
+            <div class="history-amount ${isApproved ? amtClass : ''}">
+              ${amtSign}Bs. ${Number(t.amount).toFixed(2)}
+            </div>
+            ${t.biometric ? `<div style="font-size:0.7rem; color:var(--text-muted); text-align:right;">Bio: ${t.biometric}</div>` : ''}
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    /* =====================================================================
+       INITIALIZATION
+       ===================================================================== */
+    window.addEventListener('DOMContentLoaded', () => {
+      initDatabase();
+      renderApp();
+
+      const ipInput = document.getElementById('espCamIpInput');
+      if (ipInput) ipInput.value = getEspCamIp();
+      updateCameraModeUI();
+
+      document.getElementById('btnLogout').addEventListener('click', handleLogout);
+    });
+  </script>
+</body>
+</html>

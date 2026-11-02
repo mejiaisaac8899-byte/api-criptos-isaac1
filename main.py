@@ -1,13 +1,17 @@
 import os
 import io
+import time
 import base64
 import shutil
 import numpy as np
 import cv2
 from PIL import Image
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, Request, Response, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import gradio as gr
 
 from biometric_engine import VascularBiometricEngine
@@ -17,8 +21,10 @@ from biometric_engine import VascularBiometricEngine
 # =====================================================================
 DATABASE_DIR = "database"
 CACHE_DIR = "cache"
+TEMPLATES_DIR = "templates"
 os.makedirs(DATABASE_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
 CACHE_LATEST_IMAGE = os.path.join(CACHE_DIR, "latest_esp32.jpg")
 
@@ -31,15 +37,48 @@ biometric_engine = VascularBiometricEngine(
 
 # Memoria temporal para un solo worker, y persistencia en cache para multi-worker
 ultima_foto_bytes: Optional[bytes] = None
+ultima_foto_timestamp: float = 0.0
 
 app = FastAPI(
-    title="Terminal POS Biométrica - Escáner de Venas FP32",
-    description="Backend de alta precisión para autenticación vascular con ESP32-CAM",
-    version="2.0.0"
+    title="Banco Digital Biométrico - Terminal POS Vascular",
+    description="Backend bancario de alta precisión para autenticación vascular y biopago con ESP32-CAM",
+    version="3.0.0"
+)
+
+# Permitir CORS para permitir solicitudes locales o desde túneles
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # =====================================================================
-# 2. ENDPOINT NATIVO DEL ESP32-CAM (SUBIDA DE FOTOS)
+# 2. MODELOS PYDANTIC PARA ENDPOINTS JSON
+# =====================================================================
+class VerifyJsonRequest(BaseModel):
+    cedula: str
+    image_b64: str
+
+class CompareTwoJsonRequest(BaseModel):
+    image1_b64: str
+    image2_b64: str
+
+class EnrollJsonRequest(BaseModel):
+    cedula: str
+    sample_idx: int
+    image_b64: str
+
+def decode_base64_image(b64_str: str) -> Image.Image:
+    """Decodifica cadenas base64 (incluyendo cabeceras data:image/jpeg;base64,) a PIL.Image."""
+    if "," in b64_str:
+        b64_str = b64_str.split(",", 1)[1]
+    img_bytes = base64.b64decode(b64_str)
+    return Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+# =====================================================================
+# 3. ENDPOINT NATIVO DEL ESP32-CAM (SUBIDA DE FOTOS)
 # =====================================================================
 @app.post("/upload")
 async def upload_esp32(request: Request):
@@ -48,13 +87,14 @@ async def upload_esp32(request: Request):
     Recibe el buffer binario JPEG (fb->buf, fb->len) y lo persiste
     inmediatamente en disco y memoria para disponibilidad instantánea.
     """
-    global ultima_foto_bytes
+    global ultima_foto_bytes, ultima_foto_timestamp
     body = await request.body()
     
     if not body or len(body) < 100:
         raise HTTPException(status_code=400, detail="Buffer de imagen vacío o corrupto.")
 
     ultima_foto_bytes = body
+    ultima_foto_timestamp = time.time()
 
     # Escritura atómica y descarga a disco con flush
     try:
@@ -74,19 +114,16 @@ def obtener_foto_del_esp32() -> Optional[Image.Image]:
     Extrae de inmediato la última foto capturada por el ESP32.
     Prioriza la lectura directa de disco para garantizar frescura absoluta.
     """
-    # 1. Prioridad: Archivo en disco (siempre actualizado y sincronizado)
     if os.path.exists(CACHE_LATEST_IMAGE):
         try:
             with open(CACHE_LATEST_IMAGE, "rb") as f:
                 img_data = f.read()
             if img_data and len(img_data) > 100:
                 img = Image.open(io.BytesIO(img_data)).convert("RGB")
-                print(f"[UI] Foto del ESP32 cargada en la terminal ({len(img_data)} bytes).")
                 return img
         except Exception as e:
             print(f"[CACHE READ ERROR]: {e}")
 
-    # 2. Respaldo en memoria
     global ultima_foto_bytes
     if ultima_foto_bytes and len(ultima_foto_bytes) > 100:
         try:
@@ -94,59 +131,219 @@ def obtener_foto_del_esp32() -> Optional[Image.Image]:
         except Exception:
             pass
 
-    print("[UI] No hay capturas disponibles del ESP32 todavia.")
     return None
 
 # =====================================================================
-# 3. ENDPOINTS API REST (PARA APPS MÓVILES / CLIENTES EXTERNOS)
+# 4. ENDPOINTS REST API PARA EL FRONTEND DE BANCO DIGITAL (JSON / REST)
 # =====================================================================
-@app.post("/api/v1/verify")
-async def verify_payment_api(cedula: str = Form(...), file: UploadFile = File(...)):
-    """Verificación 1:1 mediante API REST multipart."""
-    contents = await file.read()
-    try:
-        pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Imagen JPEG corrupta o inválida.")
+@app.get("/api/v1/status")
+async def api_get_status():
+    """Retorna el estado de salud del servidor biométrico y clientes registrados."""
+    clients = []
+    if os.path.exists(DATABASE_DIR):
+        for d in os.listdir(DATABASE_DIR):
+            cdir = os.path.join(DATABASE_DIR, d)
+            if os.path.isdir(cdir):
+                npy_count = len([f for f in os.listdir(cdir) if f.endswith(".npy")])
+                clients.append({"cedula": d, "samples": npy_count})
 
-    mensaje, vis_map, metrics = biometric_engine.verify_identity(cedula, pil_img)
+    has_cache = os.path.exists(CACHE_LATEST_IMAGE)
+    cache_time = os.path.getmtime(CACHE_LATEST_IMAGE) if has_cache else 0
+
+    return {
+        "status": "online",
+        "threshold": biometric_engine.similarity_threshold,
+        "enrolled_clients": clients,
+        "has_latest_capture": has_cache,
+        "latest_capture_time": cache_time
+    }
+
+@app.get("/api/v1/latest-image")
+async def api_get_latest_image(format: Optional[str] = "image"):
+    """
+    Retorna la última foto recibida del ESP32.
+    format='image' -> Retorna imagen JPEG directa.
+    format='json'  -> Retorna JSON con data URL base64.
+    """
+    if not os.path.exists(CACHE_LATEST_IMAGE):
+        raise HTTPException(status_code=404, detail="No hay capturas disponibles del ESP32.")
+
+    try:
+        with open(CACHE_LATEST_IMAGE, "rb") as f:
+            data = f.read()
+
+        if format == "json":
+            b64 = base64.b64encode(data).decode("utf-8")
+            return {
+                "status": "success",
+                "image_b64": f"data:image/jpeg;base64,{b64}",
+                "size_bytes": len(data),
+                "timestamp": os.path.getmtime(CACHE_LATEST_IMAGE)
+            }
+        else:
+            return Response(content=data, media_type="image/jpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/verify")
+async def verify_payment_api(
+    request: Request,
+    cedula: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
+):
+    """
+    Verificación biométrica 1:1.
+    Soporta tanto multipart/form-data como application/json con image_b64.
+    """
+    content_type = request.headers.get("content-type", "")
+    pil_img: Optional[Image.Image] = None
+    target_cedula: str = ""
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            target_cedula = str(body.get("cedula", "")).strip().upper()
+            img_b64 = body.get("image_b64") or body.get("image")
+            if not img_b64:
+                raise ValueError("Falta campo 'image_b64'.")
+            pil_img = decode_base64_image(img_b64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"JSON inválido o imagen base64 corrupta: {e}")
+    else:
+        # Multipart form
+        if not cedula or not file:
+            raise HTTPException(status_code=400, detail="Se requiere 'cedula' y 'file'.")
+        target_cedula = cedula.strip().upper()
+        contents = await file.read()
+        try:
+            pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Imagen JPEG corrupta o inválida.")
+
+    if not target_cedula:
+        raise HTTPException(status_code=400, detail="Cédula no proporcionada.")
+
+    mensaje, vis_map, metrics = biometric_engine.verify_identity(target_cedula, pil_img)
 
     vis_b64 = None
     if vis_map is not None:
         _, buffer = cv2.imencode(".jpg", vis_map)
-        vis_b64 = base64.b64encode(buffer).decode("utf-8")
+        vis_b64 = f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
+
+    final_score = float(metrics.get("final_score", 0.0))
+    is_auth = bool(metrics.get("authenticated", False))
+    porcentaje = round(final_score * 100, 2)
 
     return {
+        "authenticated": is_auth,
         "verdict": mensaje,
-        "metrics": metrics,
+        "cedula": target_cedula,
+        "score": final_score,
+        "percentage": porcentaje,
+        "max_match": metrics.get("max_match", 0.0),
+        "quality_score": metrics.get("quality_score", 0.0),
+        "threshold": biometric_engine.similarity_threshold * 100,
         "vascular_map_b64": vis_b64
     }
 
+@app.post("/api/v1/compare-two")
+async def compare_two_images_api(request: Request):
+    """
+    Compara 2 fotos directamente usando el algoritmo de Curvatura de Miura.
+    Ideal para comparar Muestra 1 vs Muestra 2 en pantalla sin requerir registro previo.
+    """
+    try:
+        body = await request.json()
+        b64_1 = body.get("image1_b64") or body.get("image1")
+        b64_2 = body.get("image2_b64") or body.get("image2")
+        if not b64_1 or not b64_2:
+            raise ValueError("Se requieren 'image1_b64' y 'image2_b64'.")
+
+        img1 = decode_base64_image(b64_1)
+        img2 = decode_base64_image(b64_2)
+
+        tpl1, vis1, q1 = biometric_engine.preprocessor.extract_template_and_vis(img1)
+        tpl2, vis2, q2 = biometric_engine.preprocessor.extract_template_and_vis(img2)
+
+        if tpl1 is None or tpl2 is None:
+            return {
+                "authenticated": False,
+                "score": 0.0,
+                "percentage": 0.0,
+                "message": "Fallo al segmentar el dedo en una o ambas imágenes."
+            }
+
+        score = biometric_engine._match_vein_patterns(tpl1, tpl2)
+        porcentaje = round(score * 100, 2)
+        thresh = biometric_engine.similarity_threshold
+        is_auth = score >= thresh
+
+        # Mapa visual compuesto
+        vis_b64 = None
+        if vis2 is not None:
+            _, buffer = cv2.imencode(".jpg", vis2)
+            vis_b64 = f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
+
+        return {
+            "authenticated": is_auth,
+            "score": round(score, 4),
+            "percentage": porcentaje,
+            "quality1": q1.get("quality", 0),
+            "quality2": q2.get("quality", 0),
+            "threshold": round(thresh * 100, 2),
+            "message": "🟢 IDENTIDAD CONFIRMADA" if is_auth else "🔴 IDENTIDAD NO COINCIDE",
+            "vascular_map_b64": vis_b64
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error en comparación 1:1: {e}")
 
 @app.post("/api/v1/enroll")
 async def enroll_finger_api(
-    cedula: str = Form(...), 
-    sample_idx: int = Form(...), 
-    file: UploadFile = File(...)
+    request: Request,
+    cedula: Optional[str] = Form(None), 
+    sample_idx: Optional[int] = Form(None), 
+    file: Optional[UploadFile] = File(None)
 ):
-    """Enrolamiento individual de muestra mediante API REST."""
-    contents = await file.read()
-    try:
-        pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Imagen JPEG corrupta o inválida.")
+    """Enrolamiento de muestra biométrica (soporta JSON base64 o multipart)."""
+    content_type = request.headers.get("content-type", "")
+    target_cedula = ""
+    idx = 1
+    pil_img: Optional[Image.Image] = None
 
-    return biometric_engine.enroll_sample(cedula, pil_img, sample_idx)
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            target_cedula = str(body.get("cedula", "")).strip().upper()
+            idx = int(body.get("sample_idx", 1))
+            img_b64 = body.get("image_b64") or body.get("image")
+            if not img_b64:
+                raise ValueError("Falta campo 'image_b64'.")
+            pil_img = decode_base64_image(img_b64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"JSON inválido: {e}")
+    else:
+        if not cedula or not sample_idx or not file:
+            raise HTTPException(status_code=400, detail="Campos incompletos.")
+        target_cedula = cedula.strip().upper()
+        idx = sample_idx
+        contents = await file.read()
+        try:
+            pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Imagen JPEG corrupta o inválida.")
+
+    res = biometric_engine.enroll_sample(target_cedula, pil_img, idx)
+    return res
 
 # =====================================================================
-# 4. LÓGICA DE NEGOCIO PARA EL PANEL WEB DEL CAJERO (GRADIO)
+# 5. LÓGICA DE NEGOCIO PARA EL PANEL GRADIO (ADMIN / AUDITORÍA)
 # =====================================================================
 def verificar_pago_gradio(cedula: str, img_pil: Optional[Image.Image]):
     if not cedula or not cedula.strip():
         return "⚠️ Ingrese el número de Cédula.", None
 
     if img_pil is None:
-        return "⚠️ Extraiga primero la foto capturada por el ESP32.", None
+        return "⚠️ Extraiga primero la foto capturada por el ESP32 o pegue una foto.", None
 
     mensaje, vis_map, metrics = biometric_engine.verify_identity(cedula, img_pil)
 
@@ -167,7 +364,6 @@ def verificar_pago_gradio(cedula: str, img_pil: Optional[Image.Image]):
             f"Motivo: El patrón biométrico no coincide"
         )
 
-    # Convertir mapa de visualización BGR a RGB para Gradio
     img_display = None
     if vis_map is not None:
         if len(vis_map.shape) == 2:
@@ -176,7 +372,6 @@ def verificar_pago_gradio(cedula: str, img_pil: Optional[Image.Image]):
             img_display = cv2.cvtColor(vis_map, cv2.COLOR_BGR2RGB)
 
     return resultado_txt, img_display
-
 
 def registrar_nuevo_cliente_gradio(cedula: str, img1, img2, img3, img4, img5):
     if not cedula or not cedula.strip():
@@ -202,14 +397,10 @@ def registrar_nuevo_cliente_gradio(cedula: str, img1, img2, img3, img4, img5):
 
     return f"✅ ¡Cliente {cedula_limpia} registrado exitosamente en el sistema biométrico!"
 
-
-# =====================================================================
-# 5. INTERFAZ GRÁFICA DE USUARIO (GRADIO)
-# =====================================================================
-with gr.Blocks(title="Terminal POS - Biopago") as interfaz:
+with gr.Blocks(title="Terminal POS - Biopago Admin") as interfaz_admin:
     gr.Markdown(
-        "## 🏦 Terminal POS de Biopago\n"
-        "💡 *Puedes capturar fotos desde el sensor o pegar imágenes directamente con **Ctrl + V**.*"
+        "## 🏦 Panel Administrativo Biopago\n"
+        "💡 *Panel de auditoría biométrica y respaldo administrativo.*"
     )
 
     with gr.Tabs():
@@ -236,14 +427,7 @@ with gr.Blocks(title="Terminal POS - Biopago") as interfaz:
             )
 
         with gr.TabItem("🔐 Registrar Cliente"):
-            gr.Markdown(
-                "**Instrucciones:**\n"
-                "1. Ingrese el número de Cédula.\n"
-                "2. Tome o pegue las 5 muestras del dedo.\n"
-                "3. Presione 'Registrar Cliente'."
-            )
             in_cedula_registro = gr.Textbox(label="Número de Cédula de Identidad", placeholder="Ej: V-12345678")
-
             with gr.Row():
                 with gr.Column():
                     btn_get1 = gr.Button("Foto Muestra 1", size="sm")
@@ -278,5 +462,21 @@ with gr.Blocks(title="Terminal POS - Biopago") as interfaz:
                 outputs=txt_registro_res
             )
 
-# Montar la interfaz web interactiva en la raíz del servidor FastAPI
-app = gr.mount_gradio_app(app, interfaz, path="/")
+# =====================================================================
+# 6. SERVIR EL BANCO DIGITAL BIOMÉTRICO EN LA RAÍZ Y GRADIO EN /admin
+# =====================================================================
+INDEX_HTML_PATH = os.path.join(TEMPLATES_DIR, "index.html")
+
+@app.get("/", response_class=FileResponse)
+async def serve_home():
+    """Sirve la aplicación de Banco Digital Biométrico en la raíz."""
+    if os.path.exists(INDEX_HTML_PATH):
+        return FileResponse(INDEX_HTML_PATH)
+    return HTMLResponse("<h1>Banco Biométrico Online</h1><p>Archivo templates/index.html no encontrado.</p>")
+
+# Montar Gradio en la ruta /admin para mantener el panel de auditoría disponible
+app = gr.mount_gradio_app(app, interfaz_admin, path="/admin")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False, workers=1)
