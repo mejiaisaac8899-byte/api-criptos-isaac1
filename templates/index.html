@@ -1930,12 +1930,26 @@
 
     function switchView(viewName) {
       playBeep(700, 0.04);
-      const views = ['pagomovil', 'venta', 'enrolar', 'historial', 'config'];
-      views.forEach(v => {
-        const el = document.getElementById('view' + v.charAt(0).toUpperCase() + v.slice(1));
-        const btn = document.getElementById('tabNav' + v.charAt(0).toUpperCase() + v.slice(1));
-        if (el) el.style.display = (v === viewName) ? 'block' : 'none';
-        if (btn) btn.classList.toggle('active', v === viewName);
+      const viewMap = {
+        'pagomovil': { panelId: 'viewPagoMovil', btnId: 'tabNavPagoMovil' },
+        'venta': { panelId: 'viewVenta', btnId: 'tabNavVenta' },
+        'enrolar': { panelId: 'viewEnrolar', btnId: 'tabNavEnrolar' },
+        'historial': { panelId: 'viewHistorial', btnId: 'tabNavHistorial' },
+        'config': { panelId: 'viewConfig', btnId: 'tabNavConfig' }
+      };
+
+      Object.keys(viewMap).forEach(key => {
+        const item = viewMap[key];
+        const panel = document.getElementById(item.panelId);
+        const btn = document.getElementById(item.btnId);
+        const isActive = (key === viewName);
+
+        if (panel) {
+          panel.style.display = isActive ? 'block' : 'none';
+        }
+        if (btn) {
+          btn.classList.toggle('active', isActive);
+        }
       });
 
       if (viewName === 'historial') {
