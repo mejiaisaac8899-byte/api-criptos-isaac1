@@ -991,8 +991,8 @@
       <!-- Login Form -->
       <form id="loginForm" onsubmit="handleLogin(event)">
         <div class="form-group">
-          <label class="form-label">Usuario</label>
-          <input type="text" id="loginUser" class="form-control" placeholder="Ej: cliente" required autocomplete="username">
+          <label class="form-label">Cédula de Identidad</label>
+          <input type="text" id="loginUser" class="form-control" placeholder="Ej: V-12345678 o 1" required autocomplete="username">
         </div>
         <div class="form-group">
           <label class="form-label">Clave</label>
@@ -1007,8 +1007,8 @@
       <!-- Register Form -->
       <form id="registerForm" onsubmit="handleRegister(event)" style="display: none;">
         <div class="form-group">
-          <label class="form-label">Nuevo Usuario</label>
-          <input type="text" id="regUser" class="form-control" placeholder="Nombre de usuario" required>
+          <label class="form-label">Cédula de Identidad</label>
+          <input type="text" id="regUser" class="form-control" placeholder="Ej: V-12345678 o 1" required>
         </div>
         <div class="form-group">
           <label class="form-label">Clave</label>
@@ -1093,7 +1093,7 @@
 
         <form id="pagoMovilForm" onsubmit="handlePagoMovil(event)">
           <div class="form-group">
-            <label class="form-label">Usuario Destinatario</label>
+            <label class="form-label">Cédula o Usuario Destinatario</label>
             <input type="text" id="pmTargetUser" class="form-control" placeholder="Nombre de usuario (ej: comercio)" required list="userList">
             <datalist id="userList"></datalist>
           </div>
@@ -1160,8 +1160,8 @@
           <!-- Cobro Parameters Form -->
           <form id="ventaForm" onsubmit="handleProceedToCompare(event)">
             <div class="form-group">
-              <label class="form-label">Nombre de Usuario del Cliente (a debitar)</label>
-              <input type="text" id="ventaClientUser" class="form-control" placeholder="Ej: cliente" required list="userList">
+              <label class="form-label" style="font-weight: 700; color: #fff;">🪪 Cédula de Identidad del Cliente (a debitar)</label>
+              <input type="text" id="ventaClientUser" class="form-control" placeholder="Ej: V-12345678 o 1" required list="userList" style="font-size: 1.05rem;">
             </div>
 
             <div class="form-group">
@@ -1175,9 +1175,17 @@
               </div>
             </div>
 
+            <!-- Botón directo para cargar foto de ESP32 antes de pasar a comparar -->
+            <div style="background: #0f172a; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 1.2rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">¿El cliente ya colocó el dedo en el lector?</span>
+              <button type="button" class="btn-submit" style="width: auto; background: #0284c7; padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="extractLatestEsp32Photo(2)">
+                📡 Cargar Foto del ESP32
+              </button>
+            </div>
+
             <button type="submit" class="btn-submit" id="btnCobrar">
               <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
-              Cobrar ➔ Ir a Comparar Biometría
+              Continuar ➔ Validar Biometría y Cobrar
             </button>
           </form>
         </div>
@@ -1191,7 +1199,7 @@
                 Comparación Biométrica
               </div>
               <div class="panel-subtitle">
-                Cobrando a <strong id="lblCompareUser" style="color:#fff;">@cliente</strong> la cantidad de <strong id="lblCompareAmount" style="color:var(--primary);">Bs. 0,00</strong>
+                Cobrando a C.I. <strong id="lblCompareUser" style="color:#fff;">C.I.</strong> la cantidad de <strong id="lblCompareAmount" style="color:var(--primary);">Bs. 0,00</strong>
               </div>
             </div>
             <button type="button" class="preset-btn" onclick="backToVentaSetup()">
@@ -1243,8 +1251,8 @@
                 <button type="button" class="btn-submit" style="flex: 1; padding: 0.55rem; font-size: 0.78rem;" onclick="captureSample(1)">
                   📸 Cámara
                 </button>
-                <button type="button" class="btn-submit" style="flex: 1; background: #0284c7; padding: 0.55rem; font-size: 0.78rem;" onclick="extractLatestEsp32Photo(1)">
-                  📡 ESP32
+                <button type="button" class="btn-submit" style="flex: 1.4; background: #0284c7; padding: 0.55rem; font-size: 0.82rem; font-weight: 700;" onclick="extractLatestEsp32Photo(1)">
+                  📡 Extraer Foto ESP32
                 </button>
                 <label class="preset-btn" style="flex: 1; margin: 0; padding: 0.55rem; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                   📁 Subir
@@ -1268,8 +1276,8 @@
                 <button type="button" class="btn-submit" style="flex: 1; padding: 0.55rem; font-size: 0.78rem;" onclick="captureSample(2)">
                   📸 Cámara
                 </button>
-                <button type="button" class="btn-submit" style="flex: 1; background: #0284c7; padding: 0.55rem; font-size: 0.78rem;" onclick="extractLatestEsp32Photo(2)">
-                  📡 ESP32
+                <button type="button" class="btn-submit" style="flex: 1.4; background: #0284c7; padding: 0.55rem; font-size: 0.82rem; font-weight: 700;" onclick="extractLatestEsp32Photo(2)">
+                  📡 Extraer Foto ESP32
                 </button>
                 <label class="preset-btn" style="flex: 1; margin: 0; padding: 0.55rem; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                   📁 Subir
@@ -1330,7 +1338,7 @@
 
         <form id="enrolForm" onsubmit="handleEnrollmentSubmit(event)">
           <div class="form-group">
-            <label class="form-label">Cédula o Usuario a Enrolar</label>
+            <label class="form-label" style="font-weight: 700; color: #fff;">🪪 Cédula de Identidad a Enrolar</label>
             <input type="text" id="enrolCedula" class="form-control" placeholder="Ej: V-12345678 o 1" required>
           </div>
 
