@@ -15,8 +15,8 @@
 const char *ssid = "Isaac2";
 const char *password = "6313mejia";
 
-// Opción 1 (Mundial / Cloudflare): Funciona desde cualquier red WiFi del mundo
-String serverUrl = "https://allocation-terrorism-territory-vast.trycloudflare.com/upload";
+// Opción 1 (Mundial / ngrok fijo de tu cuenta): Funciona desde cualquier red WiFi del mundo
+String serverUrl = "https://qualify-denim-armed.ngrok-free.dev/upload";
 
 // Opción 2 (Local ultra-rápida): Si la PC y el ESP32 están en el mismo WiFi
 // String serverUrl = "http://192.168.10.6:8000/upload";
@@ -129,6 +129,7 @@ void codigoTareaSubida(void * parameter) {
             http.begin(serverUrl);
             http.addHeader("Content-Type", "image/jpeg");
             http.addHeader("X-ESP32-IP", WiFi.localIP().toString()); // Auto-identificación de IP para el backend
+            http.addHeader("ngrok-skip-browser-warning", "true");
 
             int httpResponseCode = http.POST(fb->buf, fb->len);
 
