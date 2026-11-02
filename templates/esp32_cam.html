@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>UNEFA BIOPAGO - Sensor Vascular ESP32</title>
+  <style>
+    :root {
+      --bg: #0b132b;
+      --surface: #141f36;
+      --card: #1c2744;
+      --card-hover: #212f52;
+      --border: #29395f;
+      --border-focus: #3b82f6;
+      --primary: #10b981;
+      --primary-hover: #059669;
+      --primary-glow: rgba(16, 185, 129, 0.35);
+      --secondary: #3b82f6;
+      --secondary-hover: #2563eb;
+      --secondary-glow: rgba(59, 130, 246, 0.35);
+      --accent: #f59e0b;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      --transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
+      background-attachment: fixed;
+    }
+
+    /* Top Navigation Header */
+    header {
+      background: rgba(14, 23, 46, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0.8rem 1.4rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 15px var(--primary-glow);
+      flex-shrink: 0;
+    }
+
+    .brand-logo svg {
+      width: 26px;
+      height: 26px;
+      fill: white;
+    }
+
+    .brand-info h1 {
+      font-size: 1.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+
+    .brand-info p {
+      font-size: 0.74rem;
+      color: var(--primary);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .header-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      padding: 0.45rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      50% { transform: scale(1.3); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.7; }
+    }
+
+    /* Container Layout */
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 1.25rem;
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(360px, 1.15fr) minmax(440px, 1.45fr);
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    @media (max-width: 992px) {
+      .container {
+        grid-template-columns: 1fr;
+        padding: 0.85rem;
+      }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
+    }
+
+    .card-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin-bottom: 1.1rem;
+      padding-bottom: 0.7rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .card-title svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--primary);
+      flex-shrink: 0;
+    }
+
+    /* Monitor Viewport */
+    .monitor-box {
+      background: #050a14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 290px;
+      aspect-ratio: 4 / 3;
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.85);
+    }
+
+    .monitor-box img {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .monitor-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.85rem;
+      color: var(--text-dim);
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .monitor-placeholder svg {
+      width: 52px;
+      height: 52px;
+      fill: var(--text-dim);
+      opacity: 0.4;
+    }
+
+    .monitor-overlay {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .stream-tag {
+      background: rgba(6, 11, 23, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      padding: 0.3rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .stream-fps {
+      background: rgba(6, 11, 23, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      padding: 0.3rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 600;
+    }
+
+    /* Buttons Toolbar */
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+      margin-top: 1rem;
+    }
+
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding: 0.68rem 1rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: var(--transition);
+      outline: none;
+      text-decoration: none;
+      color: #fff;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), #059669);
+      box-shadow: 0 4px 15px var(--primary-glow);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #34d399, var(--primary));
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--secondary), #2563eb);
+      box-shadow: 0 4px 15px var(--secondary-glow);
+    }
+    .btn-secondary:hover {
+      background: linear-gradient(135deg, #60a5fa, var(--secondary));
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.3);
+      color: #fff;
+    }
+
+    .btn-outline {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .btn-outline:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border-color: var(--secondary);
+    }
+
+    .btn-preset {
+      background: linear-gradient(135deg, #0d3b37, #134e4a);
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      color: #6ee7b7;
+      padding: 0.8rem 1.1rem;
+    }
+    .btn-preset:hover {
+      background: linear-gradient(135deg, #115e59, #0f766e);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+    }
+
+    /* Controls Rows */
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      gap: 1rem;
+    }
+    .control-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .control-label {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .control-desc {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-top: 2px;
+    }
+
+    .control-widget {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 175px;
+      justify-content: flex-end;
+    }
+
+    .val-badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--primary);
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.28);
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      min-width: 36px;
+      text-align: center;
+    }
+
+    /* Range Slider */
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #253352;
+      outline: none;
+      transition: var(--transition);
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid #0b132b;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+      transition: transform 0.12s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+      background: #34d399;
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid #0b132b;
+    }
+
+    /* iOS/Tailwind Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider-toggle {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #29385c;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .slider-toggle:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #cbd5e1;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    input:checked + .slider-toggle {
+      background-color: var(--primary);
+      border-color: var(--primary);
+    }
+    input:checked + .slider-toggle:before {
+      transform: translateX(20px);
+      background-color: #ffffff;
+    }
+
+    /* Custom Select */
+    select {
+      background-color: #0e172a;
+      color: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.8rem;
+      font-size: 0.84rem;
+      outline: none;
+      width: 100%;
+      cursor: pointer;
+      transition: var(--transition);
+      font-weight: 500;
+    }
+    select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+    }
+
+    /* Floating Toast */
+    #toast {
+      position: fixed;
+      bottom: 25px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: rgba(14, 23, 46, 0.96);
+      border: 1px solid var(--primary);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(14px);
+      padding: 0.7rem 1.4rem;
+      border-radius: 30px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      z-index: 1000;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24"><path d="M4 10v7h3v-7H4zm6 0v7h3v-7h-3zm6 0v7h3v-7h-3zM2 22h19v-3H2v3zm9.5-20L2 6v2h19V6l-9.5-4z"/></svg>
+      </div>
+      <div class="brand-info">
+        <h1>UNEFA BIOPAGO</h1>
+        <p>SENSOR VASCULAR ESP32 • OV2640</p>
+      </div>
+    </div>
+    <div class="header-badge">
+      <span class="pulse-dot"></span>
+      <span id="ip-display">Conectando...</span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container">
+
+    <!-- LEFT COLUMN: Monitor & Stream -->
+    <div class="left-col">
+
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+          Transmisión en Vivo (MJPEG)
+        </div>
+
+        <div class="monitor-box" id="stream-container">
+          <div class="monitor-placeholder" id="placeholder">
+            <svg viewBox="0 0 24 24"><path d="M12 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm0 8c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm9.5-13h-3.17L16.5 2h-9L5.67 4H2.5C1.67 4 1 4.67 1 5.5v13c0 .83.67 1.5 1.5 1.5h19c.83 0 1.5-.67 1.5-1.5v-13c0-.83-.67-1.5-1.5-1.5z"/></svg>
+            <p>Presiona <b>Iniciar Stream</b> o <b>Capturar Foto</b></p>
+          </div>
+          <img id="stream" style="display:none;" alt="Live View">
+
+          <div class="monitor-overlay">
+            <div class="stream-tag" id="stream-status">
+              <span class="pulse-dot" style="width:6px; height:6px;"></span>
+              <span id="stream-status-text">LISTO</span>
+            </div>
+            <div class="stream-fps" id="res-badge">SVGA (800x600)</div>
+          </div>
+        </div>
+
+        <div class="btn-grid">
+          <button id="btn-stream" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            Iniciar Stream
+          </button>
+          <button id="btn-stop" class="btn btn-danger">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+            Detener
+          </button>
+          <button id="btn-capture" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path d="M9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+            Capturar Foto
+          </button>
+          <a id="btn-download" href="#" class="btn btn-outline" download="captura_biopago.jpg">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            Guardar
+          </a>
+        </div>
+      </div>
+
+      <!-- Quick Presets -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29c-.39-.39-1.02-.39-1.41 0L1.29 18.96c-.39.39-.39 1.02 0 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05c.39-.39.39-1.02 0-1.41l-2.33-2.35zm-1.03 5.49l-2.12-2.12 2.44-2.44 2.12 2.12-2.44 2.44z"/></svg>
+          Perfiles Biométricos
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.65rem;">
+          <button id="btn-preset-veins" class="btn btn-preset">
+            ✨ Modo Óptimo Red Vascular (850nm IR)
+          </button>
+          <button id="btn-preset-reset" class="btn btn-outline">
+            🔄 Restablecer Valores de Fábrica
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Optical & Sensor Settings -->
+    <div class="right-col">
+
+      <!-- Card 1: Resolucion y Calidad -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M21 3H3C2 3 1 4 1 5v14c0 1 1 2 2 2h18c1 0 2-1 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14z"/></svg>
+          1. Resolución y Nitidez JPEG
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Resolución de Captura
+            <span class="control-desc">SVGA (800x600) óptimo para biometría vascular</span>
+          </div>
+          <div class="control-widget" style="min-width: 210px;">
+            <select id="framesize" class="default-action">
+              <option value="15">UXGA (1600x1200)</option>
+              <option value="14">SXGA (1280x1024)</option>
+              <option value="13">HD (1280x720)</option>
+              <option value="12">XGA (1024x768)</option>
+              <option value="11" selected>SVGA (800x600) • Óptimo</option>
+              <option value="10">VGA (640x480)</option>
+              <option value="9">HVGA (480x320)</option>
+              <option value="8">CIF (400x296)</option>
+              <option value="6">QVGA (320x240)</option>
+              <option value="5">240x240</option>
+              <option value="4">HQVGA (240x176)</option>
+              <option value="3">QCIF (176x144)</option>
+              <option value="1">QQVGA (160x120)</option>
+              <option value="0">96x96</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Calidad JPEG / Nitidez
+            <span class="control-desc">Menor número = Mayor nitidez y detalle vascular</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-quality">10</span>
+            <input type="range" id="quality" min="10" max="63" value="10" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Efecto Especial del Sensor
+            <span class="control-desc">Escala de grises recomendada para diodos IR 850nm</span>
+          </div>
+          <div class="control-widget" style="min-width: 210px;">
+            <select id="special_effect" class="default-action">
+              <option value="0">0 - Color Natural</option>
+              <option value="2" selected>2 - Escala de Grises (Vascular IR)</option>
+              <option value="1">1 - Negativo</option>
+              <option value="3">3 - Tinte Rojizo</option>
+              <option value="4">4 - Tinte Verdoso</option>
+              <option value="5">5 - Tinte Azulado</option>
+              <option value="6">6 - Sepia</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Volteo Vertical (V-Flip)
+            <span class="control-desc">Invierte arriba / abajo</span>
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="vflip" class="default-action">
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Espejo Horizontal (H-Mirror)
+            <span class="control-desc">Reflejo lateral como espejo</span>
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="hmirror" class="default-action">
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Color, Brillo y Contraste -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+          2. Color, Brillo y Contraste
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Contraste Dinámico
+            <span class="control-desc">+2 resalta al máximo las venas subdérmicas</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-contrast">0</span>
+            <input type="range" id="contrast" min="-2" max="2" value="0" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Brillo
+            <span class="control-desc">Compensación lumínica global</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-brightness">0</span>
+            <input type="range" id="brightness" min="-2" max="2" value="0" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Saturación
+            <span class="control-desc">Intensidad cromática del sensor</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-saturation">0</span>
+            <input type="range" id="saturation" min="-2" max="2" value="0" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Balance de Blancos Automático (AWB)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="awb" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Ganancia AWB (AWB Gain)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="awb_gain" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Modo de Balance de Blancos
+          </div>
+          <div class="control-widget" style="min-width: 175px;">
+            <select id="wb_mode" class="default-action">
+              <option value="0" selected>0 - Automático</option>
+              <option value="1">1 - Soleado</option>
+              <option value="2">2 - Nublado</option>
+              <option value="3">3 - Oficina</option>
+              <option value="4">4 - Hogar</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Exposicion y Ganancia -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1z"/></svg>
+          3. Exposición y Ganancia (AEC / AGC)
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Control de Exposición Automático (AEC)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="aec" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Compensación AEC DSP (AEC2)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="aec2" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Nivel de Exposición (AE Level)
+            <span class="control-desc">Compensación EV</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-ae_level">0</span>
+            <input type="range" id="ae_level" min="-2" max="2" value="0" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Tiempo de Exposición Manual (AEC Value)
+            <span class="control-desc">Activo si AEC está apagado</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-aec_value">204</span>
+            <input type="range" id="aec_value" min="0" max="1200" value="204" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Control Automático de Ganancia (AGC)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="agc" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Ganancia Manual (AGC Gain)
+            <span class="control-desc">Amplificación del sensor OV2640</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-agc_gain">5</span>
+            <input type="range" id="agc_gain" min="0" max="30" value="5" class="default-action">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Techo de Ganancia (Gainceiling)
+            <span class="control-desc">Límite superior ISO (2x a 128x)</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-gainceiling">2x</span>
+            <input type="range" id="gainceiling" min="0" max="6" value="0" class="default-action">
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: Filtros Opticos de Hardware -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95C8.08 7.14 9.94 6 12 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11c1.56.1 2.78 1.41 2.78 2.96 0 1.65-1.35 3-3 3z"/></svg>
+          4. Filtros Ópticos y Hardware
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Corrección Óptica de Lente (LENC)
+            <span class="control-desc">Compensa el viñeteado periférico del lente</span>
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="lenc" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Corrección Píxeles Negros (BPC)
+            <span class="control-desc">Elimina ruido de píxeles calientes</span>
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="bpc" class="default-action">
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Corrección Píxeles Blancos (WPC)
+            <span class="control-desc">Compensa píxeles muertos</span>
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="wpc" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Curva Gamma RAW (RAW GMA)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="raw_gma" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Reducción de Escala DCW (Downsize EN)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="dcw" class="default-action" checked>
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            Patrón Barras de Color (Prueba)
+          </div>
+          <div class="control-widget">
+            <label class="switch">
+              <input type="checkbox" id="colorbar" class="default-action">
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-row" id="row-led" style="display:none;">
+          <div class="control-label">
+            Flash LED Incorporado
+            <span class="control-desc">Potencia luminosa del LED blanco</span>
+          </div>
+          <div class="control-widget">
+            <span class="val-badge" id="val-led_intensity">0</span>
+            <input type="range" id="led_intensity" min="0" max="255" value="0" class="default-action">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Floating Toast -->
+  <div id="toast">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#10b981"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+    <span id="toast-msg">Ajuste guardado</span>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const baseHost = document.location.origin;
+      const streamUrl = document.location.protocol + "//" + document.location.hostname + ":81";
+
+      const streamView = document.getElementById('stream');
+      const placeholder = document.getElementById('placeholder');
+      const streamStatusText = document.getElementById('stream-status-text');
+      const streamTag = document.getElementById('stream-status');
+      const resBadge = document.getElementById('res-badge');
+      const ipDisplay = document.getElementById('ip-display');
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-msg');
+
+      const btnStream = document.getElementById('btn-stream');
+      const btnStop = document.getElementById('btn-stop');
+      const btnCapture = document.getElementById('btn-capture');
+      const btnDownload = document.getElementById('btn-download');
+      const btnPresetVeins = document.getElementById('btn-preset-veins');
+      const btnPresetReset = document.getElementById('btn-preset-reset');
+
+      let isStreaming = false;
+      let toastTimeout = null;
+
+      ipDisplay.innerText = document.location.hostname ? ("ESP32: " + document.location.hostname) : "ESP32 Conectado";
+
+      function showToast(msg) {
+        toastMsg.innerText = msg;
+        toast.classList.add('show');
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
+          toast.classList.remove('show');
+        }, 1800);
+      }
+
+      function stopStream() {
+        window.stop();
+        isStreaming = false;
+        streamStatusText.innerText = 'DETENIDO';
+        streamTag.style.borderColor = 'rgba(255,255,255,0.1)';
+      }
+
+      function startStream() {
+        stopStream();
+        placeholder.style.display = 'none';
+        streamView.style.display = 'block';
+        streamView.src = `${streamUrl}/stream`;
+        isStreaming = true;
+        streamStatusText.innerText = 'EN VIVO (81)';
+        streamTag.style.borderColor = 'var(--primary)';
+        showToast("📡 Transmisión en vivo iniciada");
+      }
+
+      btnStream.onclick = startStream;
+      btnStop.onclick = () => {
+        stopStream();
+        showToast("⏹ Transmisión detenida");
+      };
+
+      btnCapture.onclick = () => {
+        stopStream();
+        placeholder.style.display = 'none';
+        streamView.style.display = 'block';
+        const captureUrl = `${baseHost}/capture?_cb=${Date.now()}`;
+        streamView.src = captureUrl;
+        streamStatusText.innerText = 'FOTO LISTA';
+        showToast("📸 Fotografía capturada");
+      };
+
+      btnDownload.onclick = () => {
+        if (!streamView.src || streamView.style.display === 'none') {
+          showToast("⚠️ Primero toma una foto o inicia stream");
+          return false;
+        }
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = streamView.naturalWidth || streamView.width || 800;
+          canvas.height = streamView.naturalHeight || streamView.height || 600;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(streamView, 0, 0);
+          btnDownload.href = canvas.toDataURL('image/jpeg');
+          showToast("💾 Descargando captura...");
+        } catch(e) {
+          btnDownload.href = streamView.src;
+        }
+      };
+
+      function formatVal(id, val) {
+        if (id === 'gainceiling') {
+          const mults = ['2x', '4x', '8x', '16x', '32x', '64x', '128x'];
+          return mults[val] || (val + 'x');
+        }
+        if (['contrast', 'brightness', 'saturation', 'ae_level'].includes(id)) {
+          const n = parseInt(val, 10);
+          return n > 0 ? ('+' + n) : ('' + n);
+        }
+        return val;
+      }
+
+      function updateBadge(id, val) {
+        const badge = document.getElementById('val-' + id);
+        if (badge) badge.innerText = formatVal(id, val);
+      }
+
+      function sendControl(variable, value) {
+        updateBadge(variable, value);
+        fetch(`${baseHost}/control?var=${variable}&val=${value}`)
+          .then(res => {
+            if (res.ok) {
+              showToast(`✓ ${variable}: ${formatVal(variable, value)}`);
+            }
+          })
+          .catch(err => {
+            console.error('Error control:', err);
+          });
+      }
+
+      // Attach events to all .default-action inputs
+      document.querySelectorAll('.default-action').forEach(el => {
+        if (el.type === 'range') {
+          el.addEventListener('input', () => {
+            updateBadge(el.id, el.value);
+          });
+          el.addEventListener('change', () => {
+            sendControl(el.id, el.value);
+          });
+        } else if (el.type === 'checkbox') {
+          el.addEventListener('change', () => {
+            sendControl(el.id, el.checked ? 1 : 0);
+          });
+        } else if (el.tagName === 'SELECT') {
+          el.addEventListener('change', () => {
+            sendControl(el.id, el.value);
+            if (el.id === 'framesize') {
+              const text = el.options[el.selectedIndex].text.split('•')[0].trim();
+              resBadge.innerText = text;
+            }
+          });
+        }
+      });
+
+      // Preset: Modo Óptimo Red Vascular (850nm IR)
+      btnPresetVeins.onclick = async () => {
+        showToast("✨ Aplicando Perfil Vascular 850nm...");
+        const params = [
+          { id: 'framesize', val: 11, type: 'select' },
+          { id: 'special_effect', val: 2, type: 'select' },
+          { id: 'contrast', val: 2, type: 'range' },
+          { id: 'brightness', val: 0, type: 'range' },
+          { id: 'quality', val: 10, type: 'range' },
+          { id: 'lenc', val: 1, type: 'checkbox' },
+          { id: 'bpc', val: 1, type: 'checkbox' },
+          { id: 'wpc', val: 1, type: 'checkbox' },
+          { id: 'aec', val: 1, type: 'checkbox' },
+          { id: 'agc', val: 1, type: 'checkbox' }
+        ];
+
+        for (const p of params) {
+          const el = document.getElementById(p.id);
+          if (el) {
+            if (p.type === 'checkbox') el.checked = (p.val === 1);
+            else el.value = p.val;
+            updateBadge(p.id, p.val);
+          }
+          await fetch(`${baseHost}/control?var=${p.id}&val=${p.val}`);
+        }
+        resBadge.innerText = 'SVGA (800x600)';
+        showToast("✅ Perfil Óptimo Red Vascular 850nm Activo");
+      };
+
+      // Preset: Reset a valores estándar
+      btnPresetReset.onclick = async () => {
+        showToast("🔄 Restableciendo valores por defecto...");
+        const params = [
+          { id: 'contrast', val: 0, type: 'range' },
+          { id: 'brightness', val: 0, type: 'range' },
+          { id: 'saturation', val: 0, type: 'range' },
+          { id: 'special_effect', val: 0, type: 'select' },
+          { id: 'framesize', val: 11, type: 'select' },
+          { id: 'quality', val: 12, type: 'range' }
+        ];
+
+        for (const p of params) {
+          const el = document.getElementById(p.id);
+          if (el) {
+            el.value = p.val;
+            updateBadge(p.id, p.val);
+          }
+          await fetch(`${baseHost}/control?var=${p.id}&val=${p.val}`);
+        }
+        resBadge.innerText = 'SVGA (800x600)';
+        showToast("✓ Valores de fábrica restablecidos");
+      };
+
+      // Load initial state from /status
+      fetch(`${baseHost}/status`)
+        .then(res => res.json())
+        .then(state => {
+          console.log('ESP32 Status:', state);
+          document.querySelectorAll('.default-action').forEach(el => {
+            const val = state[el.id];
+            if (val !== undefined) {
+              if (el.type === 'checkbox') {
+                el.checked = (val == 1);
+              } else {
+                el.value = val;
+                updateBadge(el.id, val);
+              }
+            }
+          });
+
+          // Check if LED is supported
+          if (state.led_intensity !== undefined && state.led_intensity >= 0) {
+            const rowLed = document.getElementById('row-led');
+            if (rowLed) rowLed.style.display = 'flex';
+          }
+
+          // Update resolution label
+          const fs = document.getElementById('framesize');
+          if (fs && fs.selectedIndex >= 0) {
+            resBadge.innerText = fs.options[fs.selectedIndex].text.split('•')[0].trim();
+          }
+        })
+        .catch(err => {
+          console.warn('Status not reachable (running standalone):', err);
+        });
+    });
+  </script>
+</body>
+</html>

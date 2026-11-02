@@ -558,6 +558,7 @@ with gr.Blocks(title="Terminal POS - Biopago Admin") as interfaz_admin:
 # 6. SERVIR EL BANCO DIGITAL BIOMÉTRICO EN LA RAÍZ Y GRADIO EN /admin
 # =====================================================================
 INDEX_HTML_PATH = os.path.join(TEMPLATES_DIR, "index.html")
+ESP32_CAM_HTML_PATH = os.path.join(TEMPLATES_DIR, "esp32_cam.html")
 
 @app.get("/", response_class=FileResponse)
 async def serve_home():
@@ -565,6 +566,13 @@ async def serve_home():
     if os.path.exists(INDEX_HTML_PATH):
         return FileResponse(INDEX_HTML_PATH)
     return HTMLResponse("<h1>Banco Biométrico Online</h1><p>Archivo templates/index.html no encontrado.</p>")
+
+@app.get("/esp32-cam", response_class=FileResponse)
+async def serve_esp32_cam():
+    """Sirve la interfaz web local del sensor ESP32-CAM (OV2640)."""
+    if os.path.exists(ESP32_CAM_HTML_PATH):
+        return FileResponse(ESP32_CAM_HTML_PATH)
+    return HTMLResponse("<h1>Interfaz ESP32-CAM</h1><p>Archivo templates/esp32_cam.html no encontrado.</p>")
 
 # Montar Gradio en la ruta /admin para mantener el panel de auditoría disponible
 app = gr.mount_gradio_app(app, interfaz_admin, path="/admin")
