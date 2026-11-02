@@ -42,6 +42,20 @@ biometric_engine = VascularBiometricEngine(
 ultima_foto_bytes: Optional[bytes] = None
 ultima_foto_timestamp: float = 0.0
 
+# Telemetría y detección automática del ESP32 en cualquier red del mundo
+esp32_device_info = {
+    "detected": False,
+    "last_seen_timestamp": 0.0,
+    "last_seen_time_str": "Nunca",
+    "public_ip": None,
+    "local_ip": None,
+    "user_agent": None,
+    "bytes_received": 0
+}
+
+# Cola de comandos de configuración pendientes para el sensor OV2640
+pending_esp32_config: Dict[str, int] = {}
+
 app = FastAPI(
     title="Banco Digital Biométrico - Terminal POS Vascular",
     description="Backend bancario de alta precisión para autenticación vascular y biopago con ESP32-CAM",
@@ -89,8 +103,9 @@ async def upload_esp32(request: Request):
     Endpoint nativo para el ESP32-CAM.
     Recibe el buffer binario JPEG (fb->buf, fb->len) y lo persiste
     inmediatamente en disco y memoria para disponibilidad instantánea.
+    Además detecta automáticamente la IP remota/local del ESP32.
     """
-    global ultima_foto_bytes, ultima_foto_timestamp
+    global ultima_foto_bytes, ultima_foto_timestamp, esp32_device_info, pending_esp32_config
     body = await request.body()
     
     if not body or len(body) < 100:
@@ -98,6 +113,21 @@ async def upload_esp32(request: Request):
 
     ultima_foto_bytes = body
     ultima_foto_timestamp = time.time()
+
+    # Detección automática de IP (Pública y Local enviada por el ESP32)
+    forwarded = request.headers.get("x-forwarded-for")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "desconocido")
+    local_ip = request.headers.get("x-esp32-ip") or request.headers.get("x-local-ip")
+
+    esp32_device_info = {
+        "detected": True,
+        "last_seen_timestamp": time.time(),
+        "last_seen_time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "public_ip": client_ip,
+        "local_ip": local_ip or client_ip,
+        "user_agent": request.headers.get("user-agent", "ESP32-HTTPClient"),
+        "bytes_received": len(body)
+    }
 
     # Escritura atómica y descarga a disco con flush
     try:
@@ -108,7 +138,14 @@ async def upload_esp32(request: Request):
     except Exception as e:
         print(f"[CACHE DISK ERROR]: {e}")
 
-    print(f"[ESP32] Nueva captura recibida: {len(body)} bytes persistidos en cache.")
+    print(f"[ESP32 CONECTADO] IP detectada: {client_ip} | Local: {local_ip or 'N/A'} | {len(body)} bytes persistidos.")
+
+    # Si hay comandos de configuración pendientes para el sensor, responder con JSON
+    if pending_esp32_config:
+        commands_to_send = dict(pending_esp32_config)
+        pending_esp32_config.clear()
+        return JSONResponse(content={"status": "OK", "commands": commands_to_send})
+
     return Response(content="OK", media_type="text/plain")
 
 
@@ -341,33 +378,54 @@ async def enroll_finger_api(
 @app.get("/api/v1/esp32/control")
 async def esp32_control_proxy(var: str, val: int, ip: Optional[str] = None):
     """
-    Proxy HTTP para controlar los parametros del sensor OV2640 de la ESP32-CAM.
-    Permite cambiar resolucion, brillo, contraste, calidad, saturacion, AEC, AGC, AWB, etc.
+    Controla los parámetros del sensor OV2640.
+    1. Si está en la misma red LAN (IP local directa), envía el comando inmediatamente.
+    2. Si el ESP32 está en otra red del mundo (detrás de NAT), guarda el comando
+       en la cola para entregárselo en cuanto el ESP32 se comunique con el servidor.
     """
-    target_ip = ip or "192.168.1.36"
+    global pending_esp32_config
+    pending_esp32_config[var] = val
+
+    detected_local_ip = esp32_device_info.get("local_ip")
+    target_ip = ip or detected_local_ip or "192.168.1.36"
     url = f"http://{target_ip}/control?var={var}&val={val}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "BancoBiometricoPOS/3.0"})
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
-            return {"status": "ok", "variable": var, "value": val, "code": resp.getcode()}
-    except Exception as e:
-        return {"status": "error", "variable": var, "value": val, "detail": str(e)}
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return {"status": "ok", "mode": "direct_lan", "variable": var, "value": val, "code": resp.getcode()}
+    except Exception:
+        return {"status": "ok", "mode": "queued_remote", "variable": var, "value": val, "detail": "Comando encolado para entrega remota al ESP32"}
 
 @app.get("/api/v1/esp32/status")
 async def esp32_status_proxy(ip: Optional[str] = None):
     """
     Lee los valores actuales de todos los registros del sensor OV2640 desde la ESP32-CAM (/status).
     """
-    target_ip = ip or "192.168.1.36"
+    detected_local_ip = esp32_device_info.get("local_ip")
+    target_ip = ip or detected_local_ip or "192.168.1.36"
     url = f"http://{target_ip}/status"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "BancoBiometricoPOS/3.0"})
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
             data = resp.read()
             parsed = json.loads(data.decode("utf-8", errors="ignore"))
             return {"status": "ok", "settings": parsed}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
+
+@app.get("/api/v1/esp32/device-info")
+async def get_esp32_device_info():
+    """
+    Retorna la información del último ESP32 conectado:
+    IP detectada, tiempo desde el último contacto y comandos pendientes.
+    """
+    info = dict(esp32_device_info)
+    if info.get("last_seen_timestamp"):
+        info["seconds_ago"] = round(time.time() - info["last_seen_timestamp"], 1)
+    else:
+        info["seconds_ago"] = None
+    info["pending_commands"] = pending_esp32_config
+    return info
 
 # =====================================================================
 # 5. LÓGICA DE NEGOCIO PARA EL PANEL GRADIO (ADMIN / AUDITORÍA)

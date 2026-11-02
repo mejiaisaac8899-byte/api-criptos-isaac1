@@ -1361,9 +1361,19 @@
 
         <!-- ESP32-CAM Connection Settings Card -->
         <div style="background: #0f172a; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.5rem;">
-          <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
-            📡 Dirección IP de la ESP32-CAM
-          </h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h3 style="font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+              📡 Conexión y Detección Automática de la ESP32-CAM
+            </h3>
+            <button type="button" class="preset-btn" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; background: rgba(59, 130, 246, 0.15); color: var(--secondary); border-color: var(--secondary);" onclick="checkEsp32AutoDetected(true)">
+              🔄 Detectar IP desde Servidor
+            </button>
+          </div>
+
+          <!-- Auto-Detection Status Box -->
+          <div id="esp32DetectedBox" style="background: #1e293b; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem;">
+            <span style="color: var(--text-muted);">🔍 Consultando última conexión del ESP32 al backend...</span>
+          </div>
           <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
             Define la dirección IP asignada por tu red a la cámara. Dirección predeterminada: <code style="color:var(--primary); font-weight:bold; font-size: 0.9rem;">192.168.1.36</code>
           </p>
@@ -2813,7 +2823,41 @@
     /* =====================================================================
        CONFIGURACIÓN VIEW HANDLERS
        ===================================================================== */
+    async function checkEsp32AutoDetected(showToastMsg = false) {
+      try {
+        const res = await fetch('/api/v1/esp32/device-info');
+        const data = await res.json();
+        const box = document.getElementById('esp32DetectedBox');
+        if (data.detected) {
+          const ip = data.local_ip || data.public_ip;
+          if (box) {
+            box.innerHTML = `🟢 <strong>Dispositivo Detectado:</strong> IP: <code style="color:var(--primary); font-weight:bold;">${ip}</code> (Pública: <code>${data.public_ip}</code>) • Visto hace <strong>${data.seconds_ago} seg</strong>`;
+          }
+          const cfgInput = document.getElementById('configEspIp');
+          if (cfgInput && showToastMsg) {
+            cfgInput.value = ip;
+            saveEspCamIp(ip);
+            updateConfigStatus(ip, true);
+          }
+          if (showToastMsg) {
+            playSuccessChime();
+            showToast(`¡ESP32 detectado en IP: ${ip}!`);
+          }
+        } else {
+          if (box) {
+            box.innerHTML = `🟡 <em>El ESP32 aún no se ha comunicado con el servidor. Cuando tome o suba una foto, su IP aparecerá aquí automáticamente.</em>`;
+          }
+          if (showToastMsg) {
+            showToast("Esperando primera conexión del ESP32...", true);
+          }
+        }
+      } catch (e) {
+        console.error("Error consultando device-info:", e);
+      }
+    }
+
     function loadConfigView() {
+      checkEsp32AutoDetected();
       const ip = getEspCamIp();
       const cfgInput = document.getElementById('configEspIp');
       if (cfgInput) cfgInput.value = ip;
