@@ -3,6 +3,9 @@ import io
 import time
 import base64
 import shutil
+import urllib.request
+import urllib.error
+import json
 import numpy as np
 import cv2
 from PIL import Image
@@ -334,6 +337,37 @@ async def enroll_finger_api(
 
     res = biometric_engine.enroll_sample(target_cedula, pil_img, idx)
     return res
+
+@app.get("/api/v1/esp32/control")
+async def esp32_control_proxy(var: str, val: int, ip: Optional[str] = None):
+    """
+    Proxy HTTP para controlar los parametros del sensor OV2640 de la ESP32-CAM.
+    Permite cambiar resolucion, brillo, contraste, calidad, saturacion, AEC, AGC, AWB, etc.
+    """
+    target_ip = ip or "192.168.1.36"
+    url = f"http://{target_ip}/control?var={var}&val={val}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "BancoBiometricoPOS/3.0"})
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            return {"status": "ok", "variable": var, "value": val, "code": resp.getcode()}
+    except Exception as e:
+        return {"status": "error", "variable": var, "value": val, "detail": str(e)}
+
+@app.get("/api/v1/esp32/status")
+async def esp32_status_proxy(ip: Optional[str] = None):
+    """
+    Lee los valores actuales de todos los registros del sensor OV2640 desde la ESP32-CAM (/status).
+    """
+    target_ip = ip or "192.168.1.36"
+    url = f"http://{target_ip}/status"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "BancoBiometricoPOS/3.0"})
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            data = resp.read()
+            parsed = json.loads(data.decode("utf-8", errors="ignore"))
+            return {"status": "ok", "settings": parsed}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 # =====================================================================
 # 5. LÓGICA DE NEGOCIO PARA EL PANEL GRADIO (ADMIN / AUDITORÍA)
