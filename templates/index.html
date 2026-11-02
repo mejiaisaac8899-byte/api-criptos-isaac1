@@ -634,7 +634,7 @@
     .capture-preview-box img, .capture-preview-box canvas {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
     }
 
     .capture-preview-placeholder {
@@ -2464,8 +2464,24 @@
 
 
     /* =====================================================================
-       ESP32 CAPTURE & CLIPBOARD PASTE HELPERS (BIOPAGO VASCULAR)
+       ESP32 CAPTURE & CLIPBOARD PASTE HELPERS (BIOPAGO VASCULAR - ALTA RESOLUCIÓN)
        ===================================================================== */
+    // Almacenamiento de imágenes en resolución nativa original (evita compresión/degradación)
+    const captureRawImages = { 1: null, 2: null };
+    const enrolRawImages = { 1: null, 2: null, 3: null, 4: null, 5: null };
+    const enrolSlotsReady = { 1: false, 2: false, 3: false, 4: false, 5: false };
+
+    function renderImageOnCanvas(canvas, img) {
+      // Usar resolución nativa real de la foto (e.g. 1280x517)
+      const w = img.naturalWidth || img.videoWidth || img.width || 640;
+      const h = img.naturalHeight || img.videoHeight || img.height || 480;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+    }
+
     async function extractLatestEsp32Photo(sampleIndex) {
       playBeep(750, 0.05);
       const badge = document.getElementById(sampleIndex === 1 ? 'badgeCap1' : 'badgeCap2');
@@ -2478,17 +2494,16 @@
         const data = await res.json();
         if (!data.image_b64) throw new Error("Imagen vacía");
 
+        captureRawImages[sampleIndex] = data.image_b64;
+
         const img = new Image();
         img.onload = () => {
           const canvas = document.getElementById(sampleIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
           const placeholder = document.getElementById(sampleIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
-          const ctx = canvas.getContext('2d');
-          canvas.width = 320;
-          canvas.height = 240;
-          ctx.drawImage(img, 0, 0, 320, 240);
+          renderImageOnCanvas(canvas, img);
           finishCapture(sampleIndex, canvas, placeholder, badge);
           playSuccessChime();
-          showToast(`Foto del ESP32 cargada en Muestra ${sampleIndex}!`);
+          showToast(`Foto del ESP32 cargada en Muestra ${sampleIndex} (${img.naturalWidth}x${img.naturalHeight})!`);
         };
         img.src = data.image_b64;
       } catch (err) {
@@ -2505,25 +2520,23 @@
       playBeep(600, 0.05);
       const reader = new FileReader();
       reader.onload = (e) => {
+        captureRawImages[sampleIndex] = e.target.result;
         const img = new Image();
         img.onload = () => {
           const canvas = document.getElementById(sampleIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
           const placeholder = document.getElementById(sampleIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
           const badge = document.getElementById(sampleIndex === 1 ? 'badgeCap1' : 'badgeCap2');
-          const ctx = canvas.getContext('2d');
-          canvas.width = 320;
-          canvas.height = 240;
-          ctx.drawImage(img, 0, 0, 320, 240);
+          renderImageOnCanvas(canvas, img);
           finishCapture(sampleIndex, canvas, placeholder, badge);
           playSuccessChime();
-          showToast(`Archivo cargado en Muestra ${sampleIndex}!`);
+          showToast(`Archivo cargado en Muestra ${sampleIndex} (${img.naturalWidth}x${img.naturalHeight})!`);
         };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     }
 
-    // Global Clipboard Paste Listener
+    // Global Clipboard Paste Listener (Preserva Alta Resolución)
     window.addEventListener('paste', (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -2532,22 +2545,21 @@
           const blob = items[i].getAsFile();
           const reader = new FileReader();
           reader.onload = (event) => {
+            const b64Data = event.target.result;
             const img = new Image();
             img.onload = () => {
               // Si estamos en la vista de venta, cargar en Muestra 1 o 2
               const viewVenta = document.getElementById('viewVenta');
               if (viewVenta && viewVenta.style.display !== 'none') {
                 const targetIndex = sample1Captured ? 2 : 1;
+                captureRawImages[targetIndex] = b64Data;
                 const canvas = document.getElementById(targetIndex === 1 ? 'canvasCapture1' : 'canvasCapture2');
                 const placeholder = document.getElementById(targetIndex === 1 ? 'placeholderCap1' : 'placeholderCap2');
                 const badge = document.getElementById(targetIndex === 1 ? 'badgeCap1' : 'badgeCap2');
-                const ctx = canvas.getContext('2d');
-                canvas.width = 320;
-                canvas.height = 240;
-                ctx.drawImage(img, 0, 0, 320, 240);
+                renderImageOnCanvas(canvas, img);
                 finishCapture(targetIndex, canvas, placeholder, badge);
                 playSuccessChime();
-                showToast(`Foto pegada (Ctrl+V) en Muestra ${targetIndex}!`);
+                showToast(`Foto pegada (Ctrl+V) en Muestra ${targetIndex} (${img.naturalWidth}x${img.naturalHeight})!`);
                 return;
               }
 
@@ -2556,15 +2568,15 @@
               if (viewEnrol && viewEnrol.style.display !== 'none') {
                 for (let slot = 1; slot <= 5; slot++) {
                   if (!enrolSlotsReady[slot]) {
-                    setEnrolSlotImage(slot, img);
+                    setEnrolSlotImage(slot, img, b64Data);
                     playSuccessChime();
-                    showToast(`Foto pegada en Muestra ${slot} de enrolamiento!`);
+                    showToast(`Foto pegada en Muestra ${slot} (${img.naturalWidth}x${img.naturalHeight})!`);
                     break;
                   }
                 }
               }
             };
-            img.src = event.target.result;
+            img.src = b64Data;
           };
           reader.readAsDataURL(blob);
           break;
@@ -2573,18 +2585,14 @@
     });
 
     /* =====================================================================
-       ENROLAMIENTO DE 5 MUESTRAS LOGIC
+       ENROLAMIENTO DE 5 MUESTRAS LOGIC (PRESERVA RESOLUCIÓN COMPLETA)
        ===================================================================== */
-    const enrolSlotsReady = { 1: false, 2: false, 3: false, 4: false, 5: false };
-
-    function setEnrolSlotImage(slot, img) {
+    function setEnrolSlotImage(slot, img, rawB64 = null) {
+      enrolRawImages[slot] = rawB64 || img.src;
       const canvas = document.getElementById('canvasEnrol' + slot);
       const ph = document.getElementById('phEnrol' + slot);
       const badge = document.getElementById('badgeEnrol' + slot);
-      const ctx = canvas.getContext('2d');
-      canvas.width = 160;
-      canvas.height = 120;
-      ctx.drawImage(img, 0, 0, 160, 120);
+      renderImageOnCanvas(canvas, img);
       canvas.style.display = 'block';
       ph.style.display = 'none';
       badge.className = 'badge badge-success';
@@ -2594,20 +2602,26 @@
 
     async function extractEsp32ForEnrol(slot) {
       playBeep(700, 0.05);
+      const badge = document.getElementById('badgeEnrol' + slot);
+      badge.className = 'badge badge-pending';
+      badge.textContent = 'Descargando...';
+
       try {
         const res = await fetch('/api/v1/latest-image?format=json');
-        if (!res.ok) throw new Error("Sin foto");
+        if (!res.ok) throw new Error("Sin foto en caché");
         const data = await res.json();
         const img = new Image();
         img.onload = () => {
-          setEnrolSlotImage(slot, img);
+          setEnrolSlotImage(slot, img, data.image_b64);
           playSuccessChime();
-          showToast(`Foto del ESP32 asignada a Muestra ${slot}!`);
+          showToast(`Foto del ESP32 asignada a Muestra ${slot} (${img.naturalWidth}x${img.naturalHeight})!`);
         };
         img.src = data.image_b64;
       } catch (e) {
         playErrorBuzz();
-        showToast("No hay capturas del ESP32 en caché.", true);
+        badge.className = 'badge badge-error';
+        badge.textContent = 'Sin captura';
+        showToast("No hay capturas del ESP32 en caché todavía.", true);
       }
     }
 
@@ -2617,13 +2631,14 @@
       playBeep(600, 0.05);
       const reader = new FileReader();
       reader.onload = (e) => {
+        const b64Data = e.target.result;
         const img = new Image();
         img.onload = () => {
-          setEnrolSlotImage(slot, img);
+          setEnrolSlotImage(slot, img, b64Data);
           playSuccessChime();
-          showToast(`Muestra ${slot} cargada.`);
+          showToast(`Muestra ${slot} cargada (${img.naturalWidth}x${img.naturalHeight})!`);
         };
-        img.src = e.target.result;
+        img.src = b64Data;
       };
       reader.readAsDataURL(file);
     }
@@ -2650,9 +2665,11 @@
       btn.innerHTML = '⏳ Guardando en Motor Biométrico...';
 
       let successCount = 0;
+      let lastErrorMessage = "";
       for (let s = 1; s <= 5; s++) {
         const canvas = document.getElementById('canvasEnrol' + s);
-        const b64 = canvas.toDataURL('image/jpeg', 0.95);
+        // Priorizar la imagen raw en resolución original completa
+        const b64 = enrolRawImages[s] || canvas.toDataURL('image/jpeg', 0.98);
         try {
           const res = await fetch('/api/v1/enroll', {
             method: 'POST',
@@ -2660,9 +2677,14 @@
             body: JSON.stringify({ cedula: cedula, sample_idx: s, image_b64: b64 })
           });
           const data = await res.json();
-          if (data.status === 'success') successCount++;
+          if (data.status === 'success') {
+            successCount++;
+          } else {
+            lastErrorMessage = data.message || "Fallo en muestra " + s;
+          }
         } catch(err) {
           console.error("Error enrolando muestra " + s, err);
+          lastErrorMessage = err.message;
         }
       }
 
@@ -2682,7 +2704,7 @@
         renderApp();
       } else {
         playErrorBuzz();
-        showToast("Error al guardar muestras. Verifica la calidad de la imagen.", true);
+        showToast(lastErrorMessage || "Error al guardar muestras. Verifica la calidad de la imagen.", true);
       }
     }
 
@@ -2734,18 +2756,19 @@
       const c2 = document.getElementById('canvasCapture2');
       const targetUser = (ventaPendingUser || "").trim().toUpperCase();
 
-      // Muestra más reciente
+      // Muestra más reciente en alta resolución original
+      const activeIndex = sample2Captured ? 2 : 1;
       const activeCanvas = sample2Captured ? c2 : c1;
-      const imgBase64 = activeCanvas.toDataURL('image/jpeg', 0.95);
+      const imgBase64 = captureRawImages[activeIndex] || activeCanvas.toDataURL('image/jpeg', 0.98);
 
       try {
         let res = null;
         let data = null;
 
-        // Si tenemos Muestra 1 y Muestra 2 cargadas, también enviamos al motor 1:1
+        // Si tenemos Muestra 1 y Muestra 2 cargadas, también enviamos al motor 1:1 en alta resolución
         if (sample1Captured && sample2Captured) {
-          const img1 = c1.toDataURL('image/jpeg', 0.95);
-          const img2 = c2.toDataURL('image/jpeg', 0.95);
+          const img1 = captureRawImages[1] || c1.toDataURL('image/jpeg', 0.98);
+          const img2 = captureRawImages[2] || c2.toDataURL('image/jpeg', 0.98);
           res = await fetch('/api/v1/compare-two', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
