@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Script to build the full modern redesigned HTML for the ESP32 Camera Web Server (OV2640),
-including the in-flash NVS URL configuration card, compress it with gzip, and generate camera_index.h.
+with the server endpoint configuration box placed at the very end of the page and an "OK" button.
 """
 import gzip
 import os
@@ -558,28 +558,8 @@ HTML_CONTENT = """<!DOCTYPE html>
   <!-- Main Container -->
   <main class="container">
 
-    <!-- LEFT COLUMN: Monitor, Stream & OTA Server Config -->
+    <!-- LEFT COLUMN: Monitor & Stream -->
     <div class="left-col">
-
-      <!-- Card: Servidor Backend Bancario (Configurable por Wi-Fi sin USB) -->
-      <div class="card" style="border: 1px solid rgba(16, 185, 129, 0.45); background: linear-gradient(180deg, #16243f, #141f36);">
-        <div class="card-title" style="color: var(--primary);">
-          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-          Conexión al Servidor Bancario (API)
-        </div>
-        <div class="control-row">
-          <div class="control-label">
-            URL de Subida del Backend
-            <span class="control-desc">Guarda la dirección en la memoria flash interna del ESP32 sin cables</span>
-          </div>
-        </div>
-        <div style="display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap;">
-          <input type="text" id="server-url-input" style="background:#0a101f; border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.8rem; color:#6ee7b7; font-size:0.85rem; font-family:monospace; flex:1; min-width:240px; outline:none;" placeholder="https://.../upload">
-          <button id="btn-save-url" class="btn btn-primary" style="white-space:nowrap;">
-            💾 Guardar en Flash
-          </button>
-        </div>
-      </div>
 
       <div class="card">
         <div class="card-title">
@@ -995,6 +975,29 @@ HTML_CONTENT = """<!DOCTYPE html>
       </div>
 
     </div>
+
+    <!-- RECUADRO AL FINAL DE LA PÁGINA: CONFIGURACIÓN DEL ENDPOINT CON BOTÓN OK -->
+    <div style="grid-column: 1 / -1; margin-top: 0.25rem;">
+      <div class="card" style="border: 1px solid rgba(16, 185, 129, 0.5); background: linear-gradient(180deg, #16243f, #141f36); box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+        <div class="card-title" style="color: var(--primary);">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Endpoint del Servidor Bancario (Destino de Subida)
+        </div>
+        <div class="control-row" style="border-bottom: none; padding-bottom: 0;">
+          <div class="control-label">
+            Enlace Endpoint del Servidor
+            <span class="control-desc">Ingresa aquí la URL donde el ESP32 enviará las fotos capturadas. Al presionar OK se guardará de forma permanente en la memoria interna del ESP32.</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-top: 0.85rem; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="server-url-input" style="background:#090f1d; border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; color:#6ee7b7; font-size:0.95rem; font-family:monospace; flex:1; min-width:280px; outline:none;" placeholder="https://.../upload">
+          <button id="btn-save-url" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1rem; font-weight: 800; min-width: 100px;">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Floating Toast -->
@@ -1038,7 +1041,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         if (toastTimeout) clearTimeout(toastTimeout);
         toastTimeout = setTimeout(() => {
           toast.classList.remove('show');
-        }, 2200);
+        }, 2500);
       }
 
       // Cargar Server URL actual desde el ESP32
@@ -1061,7 +1064,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         fetch(`${baseHost}/set_server_url?url=${encodeURIComponent(newUrl)}`)
           .then(res => res.text())
           .then(reply => {
-            showToast("✅ URL guardada en memoria flash del ESP32");
+            showToast("✅ OK: Endpoint guardado en memoria del ESP32");
           })
           .catch(err => {
             showToast("❌ Error al guardar en memoria");
