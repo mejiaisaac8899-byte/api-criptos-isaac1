@@ -1582,7 +1582,7 @@
     }
 
     /* =====================================================================
-       DATABASE & SESSION ENGINE (LOCALSTORAGE)
+       DATABASE & SESSION ENGINE (SINCRONIZACIÓN CENTRALIZADA CON EL SERVIDOR)
        ===================================================================== */
     const STORAGE_KEY_USERS = "banco_bio_users";
     const STORAGE_KEY_TXS = "banco_bio_transactions";
@@ -1590,62 +1590,97 @@
     const STORAGE_KEY_ESP_IP = "banco_esp32_ip";
     const DEFAULT_ESP_IP = "192.168.1.36";
 
-    function initDatabase() {
-      if (!localStorage.getItem(STORAGE_KEY_USERS)) {
-        const initialUsers = {
-          "1": { password: "123", balance: 100.00, fullName: "Isaac Titular (C.I. 1)" },
-          "cliente": { password: "1234", balance: 100.00, fullName: "Carlos Cliente" },
-          "comercio": { password: "1234", balance: 100.00, fullName: "Abasto Central" },
-          "admin": { password: "admin123", balance: 500.00, fullName: "Administrador POS" }
-        };
-        localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(initialUsers));
-      }
-      if (!localStorage.getItem(STORAGE_KEY_TXS)) {
-        const initialTxs = [
-          {
-            id: 'TX-10001',
-            type: 'Recarga Inicial',
-            sender: 'Banco Central',
-            receiver: '1',
-            amount: 100.00,
-            concept: 'Bono de Bienvenida',
-            biometric: null,
-            status: 'Aprobada',
-            timestamp: Date.now() - 3600000
+    let inMemoryUsers = {};
+    let inMemoryTxs = [];
+    let isSyncing = false;
+
+    async function syncWithServer() {
+      if (isSyncing) return;
+      isSyncing = true;
+      try {
+        const res = await fetch('/api/v1/bank/sync');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.users) {
+            inMemoryUsers = data.users;
+            localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(data.users));
           }
-        ];
-        localStorage.setItem(STORAGE_KEY_TXS, JSON.stringify(initialTxs));
+          if (data && data.transactions) {
+            inMemoryTxs = data.transactions;
+            localStorage.setItem(STORAGE_KEY_TXS, JSON.stringify(data.transactions));
+          }
+          renderApp();
+        }
+      } catch (err) {
+        // En caso de desconexión momentánea se usa el cache local
+      } finally {
+        isSyncing = false;
       }
+    }
+
+    async function initDatabase() {
+      try {
+        const localU = localStorage.getItem(STORAGE_KEY_USERS);
+        if (localU) inMemoryUsers = JSON.parse(localU);
+        const localT = localStorage.getItem(STORAGE_KEY_TXS);
+        if (localT) inMemoryTxs = JSON.parse(localT);
+      } catch (e) {}
+      await syncWithServer();
     }
 
     function getUsers() {
-      try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY_USERS)) || {};
-      } catch (e) {
-        return {};
+      if (inMemoryUsers && Object.keys(inMemoryUsers).length > 0) {
+        return inMemoryUsers;
       }
+      try {
+        const local = JSON.parse(localStorage.getItem(STORAGE_KEY_USERS));
+        if (local && Object.keys(local).length > 0) {
+          inMemoryUsers = local;
+          return local;
+        }
+      } catch (e) {}
+      return {};
     }
 
     function saveUsers(users) {
+      inMemoryUsers = { ...users };
       localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+      fetch('/api/v1/bank/users/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: users })
+      }).catch(err => console.error('Error al persistir usuarios en servidor:', err));
     }
 
     function getTransactions() {
-      try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY_TXS)) || [];
-      } catch (e) {
-        return [];
+      if (inMemoryTxs && inMemoryTxs.length > 0) {
+        return inMemoryTxs;
       }
+      try {
+        const local = JSON.parse(localStorage.getItem(STORAGE_KEY_TXS));
+        if (local && Array.isArray(local)) {
+          inMemoryTxs = local;
+          return local;
+        }
+      } catch (e) {}
+      return [];
     }
 
     function recordTransaction(tx) {
-      const txs = getTransactions();
-      txs.unshift({
+      const txFull = {
         ...tx,
         timestamp: tx.timestamp || Date.now()
-      });
+      };
+      const txs = getTransactions();
+      txs.unshift(txFull);
+      inMemoryTxs = txs;
       localStorage.setItem(STORAGE_KEY_TXS, JSON.stringify(txs));
       renderHistory();
+      fetch('/api/v1/bank/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction: txFull })
+      }).catch(err => console.error('Error al persistir transacción en servidor:', err));
     }
 
     function getCurrentSession() {
@@ -1656,6 +1691,15 @@
       if (user) {
         localStorage.setItem(STORAGE_KEY_SESSION, user);
       } else {
+        localStorage.removeItem(STORAGE_KEY_SESSION);
+      }
+    }
+
+    setInterval(syncWithServer, 3000);
+    window.addEventListener('focus', syncWithServer);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') syncWithServer();
+    }); else {
         localStorage.removeItem(STORAGE_KEY_SESSION);
       }
     }
@@ -1815,12 +1859,17 @@
       document.getElementById('loginPass').value = p;
     }
 
-    function handleLogin(e) {
+    async function handleLogin(e) {
       e.preventDefault();
       const user = document.getElementById('loginUser').value.trim().toLowerCase();
       const pass = document.getElementById('loginPass').value.trim();
 
-      const users = getUsers();
+      let users = getUsers();
+      if (!users[user]) {
+        await syncWithServer();
+        users = getUsers();
+      }
+
       if (!users[user]) {
         playErrorBuzz();
         showToast("Cédula o usuario no registrado.", true);
@@ -1838,7 +1887,7 @@
       showToast("¡Bienvenido, " + (users[user].fullName || user) + "!");
     }
 
-    function handleRegister(e) {
+    async function handleRegister(e) {
       e.preventDefault();
       const user = document.getElementById('regUser').value.trim().toLowerCase();
       const pass = document.getElementById('regPass').value.trim();
@@ -1855,35 +1904,61 @@
         return;
       }
 
-      const users = getUsers();
-      if (users[user]) {
-        playErrorBuzz();
-        showToast("Esta Cédula o Usuario ya está registrado.", true);
-        return;
+      try {
+        const res = await fetch('/api/v1/bank/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user: user,
+            password: pass,
+            fullName: "Titular C.I. " + user.toUpperCase()
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          playErrorBuzz();
+          showToast(data.detail || "Error al registrar cuenta.", true);
+          return;
+        }
+
+        if (data.users) {
+          inMemoryUsers = data.users;
+          localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(data.users));
+        }
+
+        setCurrentSession(user);
+        playSuccessChime();
+        renderApp();
+        showToast("¡Cuenta creada exitosamente en el servidor! Has recibido 100,00 Bs.");
+        syncWithServer();
+      } catch (err) {
+        const users = getUsers();
+        if (users[user]) {
+          playErrorBuzz();
+          showToast("Esta Cédula o Usuario ya está registrado.", true);
+          return;
+        }
+        users[user] = {
+          password: pass,
+          balance: 100.00,
+          fullName: "Titular C.I. " + user.toUpperCase()
+        };
+        saveUsers(users);
+        recordTransaction({
+          id: 'TX-' + Date.now().toString().slice(-5),
+          type: 'Apertura de Cuenta',
+          sender: 'Banco Biométrico',
+          receiver: user,
+          amount: 100.00,
+          concept: 'Bono de Bienvenida por Apertura',
+          biometric: null,
+          status: 'Aprobada'
+        });
+        setCurrentSession(user);
+        playSuccessChime();
+        renderApp();
+        showToast("¡Cuenta creada exitosamente! Has recibido 100,00 Bs.");
       }
-
-      users[user] = {
-        password: pass,
-        balance: 100.00,
-        fullName: "Titular C.I. " + user.toUpperCase()
-      };
-      saveUsers(users);
-
-      recordTransaction({
-        id: 'TX-' + Date.now().toString().slice(-5),
-        type: 'Apertura de Cuenta',
-        sender: 'Banco Biométrico',
-        receiver: user,
-        amount: 100.00,
-        concept: 'Bono de Bienvenida por Apertura',
-        biometric: null,
-        status: 'Aprobada'
-      });
-
-      setCurrentSession(user);
-      playSuccessChime();
-      renderApp();
-      showToast("¡Cuenta creada exitosamente! Has recibido 100,00 Bs.");
     }
 
     function handleLogout() {
@@ -2652,14 +2727,17 @@
       }
     }
 
-    function resetAllDemoData() {
+    async function resetAllDemoData() {
       if (confirm("¿Estás seguro de restablecer todos los usuarios y saldos a sus valores iniciales?")) {
         playBeep(300, 0.1);
+        try {
+          await fetch('/api/v1/bank/reset', { method: 'POST' });
+        } catch (e) {}
         localStorage.removeItem(STORAGE_KEY_USERS);
         localStorage.removeItem(STORAGE_KEY_TXS);
-        initDatabase();
+        await syncWithServer();
         renderApp();
-        showToast("Base de datos de prueba restablecida.");
+        showToast("Base de datos central restablecida.");
       }
     }
 

@@ -6,6 +6,8 @@ import shutil
 import urllib.request
 import urllib.error
 import json
+import threading
+import random
 import numpy as np
 import cv2
 from PIL import Image
@@ -93,6 +95,228 @@ def decode_base64_image(b64_str: str) -> Image.Image:
         b64_str = b64_str.split(",", 1)[1]
     img_bytes = base64.b64decode(b64_str)
     return Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+# =====================================================================
+# PERSISTENCIA CENTRALIZADA DE CUENTAS BANCARIAS Y TRANSACCIONES
+# (Sincronización multi-dispositivo entre PC, teléfonos y terminales POS)
+# =====================================================================
+USERS_DB_PATH = os.path.join(DATABASE_DIR, "users.json")
+TRANSACTIONS_DB_PATH = os.path.join(DATABASE_DIR, "transactions.json")
+db_lock = threading.RLock()
+
+INITIAL_USERS = {
+    "1": {"password": "123", "balance": 100.00, "fullName": "Isaac Titular (C.I. 1)"},
+    "2": {"password": "123", "balance": 100.00, "fullName": "Cliente Demo 2 (C.I. 2)"},
+    "cliente": {"password": "1234", "balance": 100.00, "fullName": "Carlos Cliente"},
+    "comercio": {"password": "1234", "balance": 100.00, "fullName": "Abasto Central"},
+    "admin": {"password": "admin123", "balance": 500.00, "fullName": "Administrador POS"}
+}
+
+INITIAL_TRANSACTIONS = [
+    {
+        "id": "TX-10001",
+        "type": "Recarga Inicial",
+        "sender": "Banco Central",
+        "receiver": "1",
+        "amount": 100.00,
+        "concept": "Bono de Bienvenida",
+        "biometric": None,
+        "status": "Aprobada",
+        "timestamp": int(time.time() * 1000) - 3600000
+    }
+]
+
+def load_server_users() -> dict:
+    with db_lock:
+        if not os.path.exists(USERS_DB_PATH):
+            save_server_users_internal(INITIAL_USERS)
+            return dict(INITIAL_USERS)
+        try:
+            with open(USERS_DB_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+                return dict(INITIAL_USERS)
+        except Exception as e:
+            print(f"[DB Error] loading users: {e}")
+            return dict(INITIAL_USERS)
+
+def save_server_users_internal(users: dict):
+    os.makedirs(DATABASE_DIR, exist_ok=True)
+    with open(USERS_DB_PATH, "w", encoding="utf-8") as f:
+        json.dump(users, f, indent=2, ensure_ascii=False)
+
+def save_server_users(users: dict):
+    with db_lock:
+        save_server_users_internal(users)
+
+def load_server_transactions() -> list:
+    with db_lock:
+        if not os.path.exists(TRANSACTIONS_DB_PATH):
+            save_server_transactions_internal(INITIAL_TRANSACTIONS)
+            return list(INITIAL_TRANSACTIONS)
+        try:
+            with open(TRANSACTIONS_DB_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+                return list(INITIAL_TRANSACTIONS)
+        except Exception as e:
+            print(f"[DB Error] loading transactions: {e}")
+            return list(INITIAL_TRANSACTIONS)
+
+def save_server_transactions_internal(txs: list):
+    os.makedirs(DATABASE_DIR, exist_ok=True)
+    with open(TRANSACTIONS_DB_PATH, "w", encoding="utf-8") as f:
+        json.dump(txs, f, indent=2, ensure_ascii=False)
+
+def save_server_transactions(txs: list):
+    with db_lock:
+        save_server_transactions_internal(txs)
+
+class BankRegisterRequest(BaseModel):
+    user: str
+    password: str
+    fullName: Optional[str] = None
+
+class BankSaveUsersRequest(BaseModel):
+    users: Dict[str, Any]
+
+class BankRecordTxRequest(BaseModel):
+    transaction: Dict[str, Any]
+
+class BankTransferRequest(BaseModel):
+    sender: str
+    receiver: str
+    amount: float
+    concept: Optional[str] = "Transferencia Pago Móvil"
+
+@app.get("/api/v1/bank/sync")
+async def bank_sync_all():
+    """Retorna en una sola llamada los usuarios y transacciones del servidor."""
+    return {
+        "status": "success",
+        "users": load_server_users(),
+        "transactions": load_server_transactions(),
+        "server_time": int(time.time() * 1000)
+    }
+
+@app.get("/api/v1/bank/users")
+async def get_bank_users():
+    return {"status": "success", "users": load_server_users()}
+
+@app.post("/api/v1/bank/users/save")
+async def save_bank_users_api(req: BankSaveUsersRequest):
+    save_server_users(req.users)
+    return {"status": "success", "count": len(req.users)}
+
+@app.post("/api/v1/bank/register")
+async def register_bank_user(req: BankRegisterRequest):
+    clean_user = req.user.strip().lower()
+    if not clean_user or len(req.password) < 3:
+        raise HTTPException(status_code=400, detail="La clave debe tener al menos 3 caracteres.")
+    
+    with db_lock:
+        users = load_server_users()
+        if clean_user in users:
+            raise HTTPException(status_code=400, detail="Esta Cédula o Usuario ya está registrado.")
+        
+        users[clean_user] = {
+            "password": req.password,
+            "balance": 100.00,
+            "fullName": req.fullName or f"Titular C.I. {clean_user.upper()}"
+        }
+        save_server_users_internal(users)
+        
+        txs = load_server_transactions()
+        txs.insert(0, {
+            "id": f"TX-{int(time.time() * 1000) % 100000:05d}",
+            "type": "Apertura de Cuenta",
+            "sender": "Banco Biométrico",
+            "receiver": clean_user,
+            "amount": 100.00,
+            "concept": "Bono de Bienvenida por Apertura",
+            "biometric": None,
+            "status": "Aprobada",
+            "timestamp": int(time.time() * 1000)
+        })
+        save_server_transactions_internal(txs)
+    
+    return {"status": "success", "user": clean_user, "users": users}
+
+@app.get("/api/v1/bank/transactions")
+async def get_bank_transactions():
+    return {"status": "success", "transactions": load_server_transactions()}
+
+@app.post("/api/v1/bank/transactions")
+async def record_bank_transaction_api(req: BankRecordTxRequest):
+    tx = req.transaction
+    if "timestamp" not in tx or not tx["timestamp"]:
+        tx["timestamp"] = int(time.time() * 1000)
+    with db_lock:
+        txs = load_server_transactions()
+        txs.insert(0, tx)
+        save_server_transactions_internal(txs)
+    return {"status": "success", "count": len(txs)}
+
+@app.post("/api/v1/bank/transfer")
+async def transfer_bank_funds(req: BankTransferRequest):
+    sender_key = req.sender.strip().lower()
+    receiver_key = req.receiver.strip().lower()
+    amount = round(req.amount, 2)
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0.")
+    if sender_key == receiver_key:
+        raise HTTPException(status_code=400, detail="No puedes transferirte a ti mismo.")
+
+    with db_lock:
+        users = load_server_users()
+        if sender_key not in users:
+            raise HTTPException(status_code=404, detail="Usuario emisor no encontrado.")
+        if users[sender_key]["balance"] < amount:
+            raise HTTPException(status_code=400, detail="Saldo insuficiente.")
+
+        if receiver_key not in users:
+            users[receiver_key] = {
+                "password": "123",
+                "balance": 0.00,
+                "fullName": f"Titular {receiver_key.upper()}"
+            }
+
+        users[sender_key]["balance"] = round(users[sender_key]["balance"] - amount, 2)
+        users[receiver_key]["balance"] = round(users[receiver_key]["balance"] + amount, 2)
+        save_server_users_internal(users)
+
+        txs = load_server_transactions()
+        ref = f"PM-{random.randint(100000, 999999)}"
+        txs.insert(0, {
+            "id": ref,
+            "type": "Pago Móvil",
+            "sender": sender_key,
+            "receiver": receiver_key,
+            "amount": amount,
+            "concept": req.concept,
+            "biometric": None,
+            "status": "Aprobada",
+            "timestamp": int(time.time() * 1000)
+        })
+        save_server_transactions_internal(txs)
+
+    return {
+        "status": "success",
+        "ref": ref,
+        "sender_balance": users[sender_key]["balance"],
+        "receiver_balance": users[receiver_key]["balance"],
+        "users": users
+    }
+
+@app.post("/api/v1/bank/reset")
+async def reset_bank_database():
+    with db_lock:
+        save_server_users_internal(INITIAL_USERS)
+        save_server_transactions_internal(INITIAL_TRANSACTIONS)
+    return {"status": "success", "users": INITIAL_USERS, "transactions": INITIAL_TRANSACTIONS}
 
 # =====================================================================
 # 3. ENDPOINT NATIVO DEL ESP32-CAM (SUBIDA DE FOTOS)
