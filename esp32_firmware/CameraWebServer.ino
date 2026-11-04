@@ -19,7 +19,7 @@ const char *password = "6313mejia";
 
 Preferences preferences;
 // URL del Servidor Bancario (Se sobreescribe dinámicamente si hay una guardada en NVS Flash)
-String serverUrl = "https://level-old-writes-navigate.trycloudflare.com/upload";
+String serverUrl = "https://opened-reach-swap-educational.trycloudflare.com/upload";
 
 // Opción 2 (Local ultra-rápida): Si la PC y el ESP32 están en el mismo WiFi
 // String serverUrl = "http://192.168.10.6:8000/upload";

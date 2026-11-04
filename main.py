@@ -795,7 +795,7 @@ async def serve_home():
 # SIMULACIÓN DE ENDPOINTS NATIVOS DEL ESP32 PARA EL PREVIEW WEB
 # =====================================================================
 mock_esp32_leds = False
-mock_server_url = "https://level-old-writes-navigate.trycloudflare.com/upload"
+mock_server_url = "https://opened-reach-swap-educational.trycloudflare.com/upload"
 
 @app.get("/get_led_status")
 async def mock_get_led():
