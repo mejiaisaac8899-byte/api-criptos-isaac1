@@ -550,8 +550,28 @@
   <!-- Main Container -->
   <main class="container">
 
-    <!-- LEFT COLUMN: Monitor & Stream -->
+    <!-- LEFT COLUMN: Monitor, Stream & OTA Server Config -->
     <div class="left-col">
+
+      <!-- Card: Servidor Backend Bancario (Configurable por Wi-Fi sin USB) -->
+      <div class="card" style="border: 1px solid rgba(16, 185, 129, 0.45); background: linear-gradient(180deg, #16243f, #141f36);">
+        <div class="card-title" style="color: var(--primary);">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Conexión al Servidor Bancario (API)
+        </div>
+        <div class="control-row">
+          <div class="control-label">
+            URL de Subida del Backend
+            <span class="control-desc">Guarda la dirección en la memoria flash interna del ESP32 sin cables</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap;">
+          <input type="text" id="server-url-input" style="background:#0a101f; border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.8rem; color:#6ee7b7; font-size:0.85rem; font-family:monospace; flex:1; min-width:240px; outline:none;" placeholder="https://.../upload">
+          <button id="btn-save-url" class="btn btn-primary" style="white-space:nowrap;">
+            💾 Guardar en Flash
+          </button>
+        </div>
+      </div>
 
       <div class="card">
         <div class="card-title">
@@ -996,6 +1016,9 @@
       const btnPresetVeins = document.getElementById('btn-preset-veins');
       const btnPresetReset = document.getElementById('btn-preset-reset');
 
+      const serverUrlInput = document.getElementById('server-url-input');
+      const btnSaveUrl = document.getElementById('btn-save-url');
+
       let isStreaming = false;
       let toastTimeout = null;
 
@@ -1007,8 +1030,35 @@
         if (toastTimeout) clearTimeout(toastTimeout);
         toastTimeout = setTimeout(() => {
           toast.classList.remove('show');
-        }, 1800);
+        }, 2200);
       }
+
+      // Cargar Server URL actual desde el ESP32
+      fetch(`${baseHost}/get_server_url`)
+        .then(res => res.text())
+        .then(url => {
+          if (url && url.length > 5) {
+            serverUrlInput.value = url;
+          }
+        })
+        .catch(err => console.log('Error fetching server url:', err));
+
+      btnSaveUrl.onclick = () => {
+        const newUrl = serverUrlInput.value.trim();
+        if (!newUrl.startsWith('http://') && !newUrl.startsWith('https://')) {
+          showToast("⚠️ La URL debe iniciar con http:// o https://");
+          return;
+        }
+        showToast("💾 Guardando en memoria del ESP32...");
+        fetch(`${baseHost}/set_server_url?url=${encodeURIComponent(newUrl)}`)
+          .then(res => res.text())
+          .then(reply => {
+            showToast("✅ URL guardada en memoria flash del ESP32");
+          })
+          .catch(err => {
+            showToast("❌ Error al guardar en memoria");
+          });
+      };
 
       function stopStream() {
         window.stop();

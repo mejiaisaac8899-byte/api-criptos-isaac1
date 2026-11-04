@@ -20,6 +20,11 @@
 #include "sdkconfig.h"
 #include "camera_index.h"
 #include "board_config.h"
+#include <Arduino.h>
+#include <Preferences.h>
+
+extern Preferences preferences;
+extern String serverUrl;
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -667,9 +672,53 @@ static esp_err_t index_handler(httpd_req_t *req) {
   }
 }
 
+static esp_err_t set_url_handler(httpd_req_t *req) {
+  char *buf = NULL;
+  size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1) {
+    buf = (char *)malloc(buf_len);
+    if (!buf) {
+      httpd_resp_send_500(req);
+      return ESP_FAIL;
+    }
+    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+      char raw_url[256];
+      if (httpd_query_key_value(buf, "url", raw_url, sizeof(raw_url)) == ESP_OK) {
+        String decodedUrl = "";
+        for (int i = 0; raw_url[i] != '\0'; i++) {
+          if (raw_url[i] == '%' && raw_url[i+1] && raw_url[i+2]) {
+            char hex[3] = {raw_url[i+1], raw_url[i+2], '\0'};
+            decodedUrl += (char)strtol(hex, NULL, 16);
+            i += 2;
+          } else if (raw_url[i] == '+') {
+            decodedUrl += ' ';
+          } else {
+            decodedUrl += raw_url[i];
+          }
+        }
+        serverUrl = decodedUrl;
+        preferences.putString("serverUrl", serverUrl);
+        log_i("[NVS] Nueva URL guardada en flash: %s", serverUrl.c_str());
+        free(buf);
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        return httpd_resp_send(req, serverUrl.c_str(), serverUrl.length());
+      }
+    }
+    free(buf);
+  }
+  httpd_resp_send_404(req);
+  return ESP_FAIL;
+}
+
+static esp_err_t get_url_handler(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/plain");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, serverUrl.c_str(), serverUrl.length());
+}
+
 void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 16;
+  config.max_uri_handlers = 20;
 
   httpd_uri_t index_uri = {
     .uri = "/",
@@ -829,6 +878,22 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &greg_uri);
     httpd_register_uri_handler(camera_httpd, &pll_uri);
     httpd_register_uri_handler(camera_httpd, &win_uri);
+
+    httpd_uri_t set_url_uri = {
+      .uri = "/set_server_url",
+      .method = HTTP_GET,
+      .handler = set_url_handler,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(camera_httpd, &set_url_uri);
+
+    httpd_uri_t get_url_uri = {
+      .uri = "/get_server_url",
+      .method = HTTP_GET,
+      .handler = get_url_handler,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(camera_httpd, &get_url_uri);
   }
 
   config.server_port += 1;

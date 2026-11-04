@@ -15,8 +15,11 @@
 const char *ssid = "Isaac2";
 const char *password = "6313mejia";
 
-// Opción 1 (Mundial / Dominio fijo permanente): Funciona desde cualquier red WiFi del mundo
-String serverUrl = "https://unefa-biopago-isaac.loca.lt/upload";
+#include <Preferences.h>
+
+Preferences preferences;
+// URL del Servidor Bancario (Se sobreescribe dinámicamente si hay una guardada en NVS Flash)
+String serverUrl = "https://level-old-writes-navigate.trycloudflare.com/upload";
 
 // Opción 2 (Local ultra-rápida): Si la PC y el ESP32 están en el mismo WiFi
 // String serverUrl = "http://192.168.10.6:8000/upload";
@@ -205,6 +208,14 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
+
+  // Inicializar almacenamiento no volátil (NVS Flash) para recordar la URL sin cables
+  preferences.begin("biopago", false);
+  String savedUrl = preferences.getString("serverUrl", "");
+  if (savedUrl.length() > 5) {
+    serverUrl = savedUrl;
+  }
+  Serial.printf("[NVS] URL de Servidor activa: %s\n", serverUrl.c_str());
 
   pinMode(TRANSISTOR_PIN, OUTPUT);
   digitalWrite(TRANSISTOR_PIN, LOW);

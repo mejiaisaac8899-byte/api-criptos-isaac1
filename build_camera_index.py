@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Script to build the full modern redesigned HTML for the ESP32 Camera Web Server (OV2640),
-compress it with gzip, and generate camera_index.h.
+including the in-flash NVS URL configuration card, compress it with gzip, and generate camera_index.h.
 """
 import gzip
 import os
@@ -558,8 +558,28 @@ HTML_CONTENT = """<!DOCTYPE html>
   <!-- Main Container -->
   <main class="container">
 
-    <!-- LEFT COLUMN: Monitor & Stream -->
+    <!-- LEFT COLUMN: Monitor, Stream & OTA Server Config -->
     <div class="left-col">
+
+      <!-- Card: Servidor Backend Bancario (Configurable por Wi-Fi sin USB) -->
+      <div class="card" style="border: 1px solid rgba(16, 185, 129, 0.45); background: linear-gradient(180deg, #16243f, #141f36);">
+        <div class="card-title" style="color: var(--primary);">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Conexión al Servidor Bancario (API)
+        </div>
+        <div class="control-row">
+          <div class="control-label">
+            URL de Subida del Backend
+            <span class="control-desc">Guarda la dirección en la memoria flash interna del ESP32 sin cables</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap;">
+          <input type="text" id="server-url-input" style="background:#0a101f; border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.8rem; color:#6ee7b7; font-size:0.85rem; font-family:monospace; flex:1; min-width:240px; outline:none;" placeholder="https://.../upload">
+          <button id="btn-save-url" class="btn btn-primary" style="white-space:nowrap;">
+            💾 Guardar en Flash
+          </button>
+        </div>
+      </div>
 
       <div class="card">
         <div class="card-title">
@@ -1004,6 +1024,9 @@ HTML_CONTENT = """<!DOCTYPE html>
       const btnPresetVeins = document.getElementById('btn-preset-veins');
       const btnPresetReset = document.getElementById('btn-preset-reset');
 
+      const serverUrlInput = document.getElementById('server-url-input');
+      const btnSaveUrl = document.getElementById('btn-save-url');
+
       let isStreaming = false;
       let toastTimeout = null;
 
@@ -1015,8 +1038,35 @@ HTML_CONTENT = """<!DOCTYPE html>
         if (toastTimeout) clearTimeout(toastTimeout);
         toastTimeout = setTimeout(() => {
           toast.classList.remove('show');
-        }, 1800);
+        }, 2200);
       }
+
+      // Cargar Server URL actual desde el ESP32
+      fetch(`${baseHost}/get_server_url`)
+        .then(res => res.text())
+        .then(url => {
+          if (url && url.length > 5) {
+            serverUrlInput.value = url;
+          }
+        })
+        .catch(err => console.log('Error fetching server url:', err));
+
+      btnSaveUrl.onclick = () => {
+        const newUrl = serverUrlInput.value.trim();
+        if (!newUrl.startsWith('http://') && !newUrl.startsWith('https://')) {
+          showToast("⚠️ La URL debe iniciar con http:// o https://");
+          return;
+        }
+        showToast("💾 Guardando en memoria del ESP32...");
+        fetch(`${baseHost}/set_server_url?url=${encodeURIComponent(newUrl)}`)
+          .then(res => res.text())
+          .then(reply => {
+            showToast("✅ URL guardada en memoria flash del ESP32");
+          })
+          .catch(err => {
+            showToast("❌ Error al guardar en memoria");
+          });
+      };
 
       function stopStream() {
         window.stop();
@@ -1216,13 +1266,11 @@ HTML_CONTENT = """<!DOCTYPE html>
 """
 
 def generate_header():
-    # 1. Compress HTML with gzip (level 9 for maximum compression)
     html_bytes = HTML_CONTENT.encode('utf-8')
     compressed_bytes = gzip.compress(html_bytes, compresslevel=9)
     print(f"Original HTML Size: {len(html_bytes)} bytes")
     print(f"Gzip Compressed Size: {len(compressed_bytes)} bytes")
 
-    # Format into C array
     hex_lines = []
     chunk_size = 26
     for i in range(0, len(compressed_bytes), chunk_size):
@@ -1255,25 +1303,21 @@ const unsigned char index_ov5640_html_gz[] = {{
 if __name__ == '__main__':
     header_content, raw_html = generate_header()
     
-    # Save standalone HTML for preview/inspection
     preview_path = r"C:\Users\Isaac\OneDrive\Desktop\COSAS\ISACS\CameraWebServer\unefa_biopago_camera_ui.html"
     with open(preview_path, "w", encoding="utf-8") as f:
         f.write(raw_html)
     print(f"Preview HTML written to: {preview_path}")
 
-    # Also save to templates so FastAPI can serve it at /esp32-preview
     template_preview = r"C:\Users\Isaac\OneDrive\Desktop\COSAS\ISACS\api-criptos-isaac1\templates\esp32_cam.html"
     with open(template_preview, "w", encoding="utf-8") as f:
         f.write(raw_html)
     print(f"Template preview written to: {template_preview}")
 
-    # Save camera_index.h to CameraWebServer folder
     target_header_1 = r"C:\Users\Isaac\OneDrive\Desktop\COSAS\ISACS\CameraWebServer\camera_index.h"
     with open(target_header_1, "w", encoding="utf-8") as f:
         f.write(header_content)
     print(f"Updated {target_header_1}")
 
-    # Also save to repo esp32_firmware folder
     target_header_2 = r"C:\Users\Isaac\OneDrive\Desktop\COSAS\ISACS\api-criptos-isaac1\esp32_firmware\camera_index.h"
     if os.path.exists(os.path.dirname(target_header_2)):
         with open(target_header_2, "w", encoding="utf-8") as f:
