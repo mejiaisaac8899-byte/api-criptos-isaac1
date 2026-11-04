@@ -1699,10 +1699,7 @@
     window.addEventListener('focus', syncWithServer);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') syncWithServer();
-    }); else {
-        localStorage.removeItem(STORAGE_KEY_SESSION);
-      }
-    }
+    });
 
     /* =====================================================================
        ESP32 IP & STREAM MANAGEMENT (SOLO ESP32, NO WEBCAM)
