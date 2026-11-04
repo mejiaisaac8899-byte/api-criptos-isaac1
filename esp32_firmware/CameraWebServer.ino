@@ -43,6 +43,22 @@ U8G2_ST7920_128X64_1_SW_SPI u8g2(U8G2_R0, LCD_CLK, LCD_DATA, LCD_CS, U8X8_PIN_NO
 // Variables volátiles para que ambos núcleos compartan el estado instantáneo
 volatile bool estadoInvertido = false;
 volatile bool enviandoFoto = false; // Bandera para controlar el aviso visual en LCD
+volatile bool ledsFijos = false;    // Modo prueba: mantiene los LEDs encendidos de forma fija
+
+void setLedsFijos(bool encender) {
+  ledsFijos = encender;
+  if (ledsFijos) {
+    digitalWrite(TRANSISTOR_PIN, HIGH);
+    Serial.println("💡 [ESP32] LEDs fijos ACTIVADOS para pruebas");
+  } else {
+    digitalWrite(TRANSISTOR_PIN, LOW);
+    Serial.println("💡 [ESP32] LEDs fijos DESACTIVADOS");
+  }
+}
+
+bool getLedsFijos() {
+  return ledsFijos;
+}
 
 // ===========================
 // MANEJADORES DE TAREAS (FreeRTOS)
@@ -68,7 +84,10 @@ void codigoTareaPantalla(void * parameter) {
       u8g2.print(WiFi.localIP());
 
       // --- Lógica de avisos en pantalla ---
-      if (enviandoFoto) {
+      if (ledsFijos) {
+        u8g2.setCursor(0, 53);
+        u8g2.print(">> LEDS FIJOS [ON]");
+      } else if (enviandoFoto) {
         // Si se está subiendo, quitamos el cuadro y mostramos el texto
         u8g2.setCursor(0, 53);
         u8g2.print(">> ENVIANDO FOTO...");
@@ -118,8 +137,10 @@ void codigoTareaSubida(void * parameter) {
           // 4. CAPTURAR FOTO (Se toma MIENTRAS los LEDs siguen encendidos)
           camera_fb_t * fb = esp_camera_fb_get();
           
-          // 5. APAGAR LEDS inmediatamente después de capturar la imagen
-          digitalWrite(TRANSISTOR_PIN, LOW);
+          // 5. APAGAR LEDS inmediatamente después de capturar la imagen (si no están fijos para prueba)
+          if (!ledsFijos) {
+            digitalWrite(TRANSISTOR_PIN, LOW);
+          }
           
           if(!fb) {
             Serial.println("❌ [ESP32] Error: Fallo al capturar la cámara");
@@ -185,9 +206,11 @@ void codigoTareaSubida(void * parameter) {
             enviandoFoto = false; 
           }
         } else {
-          // Si se cae el WiFi, igual apagamos los LEDs por seguridad
-          digitalWrite(TRANSISTOR_PIN, LOW);
-          Serial.println("⚠️ [ESP32] Sin WiFi. Cancelando envío y apagando LEDs.");
+          // Si se cae el WiFi, igual apagamos los LEDs por seguridad si no están fijos
+          if (!ledsFijos) {
+            digitalWrite(TRANSISTOR_PIN, LOW);
+          }
+          Serial.println("⚠️ [ESP32] Sin WiFi. Cancelando envío.");
         }
         
         // 7. TIEMPO DE ENFRIAMIENTO (Cooldown)

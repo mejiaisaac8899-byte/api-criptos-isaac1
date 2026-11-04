@@ -25,6 +25,8 @@
 
 extern Preferences preferences;
 extern String serverUrl;
+extern void setLedsFijos(bool encender);
+extern bool getLedsFijos();
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -393,6 +395,9 @@ static esp_err_t cmd_handler(httpd_req_t *req) {
     res = s->set_wb_mode(s, val);
   } else if (!strcmp(variable, "ae_level")) {
     res = s->set_ae_level(s, val);
+  } else if (!strcmp(variable, "led_test")) {
+    setLedsFijos(val == 1);
+    res = 0;
   }
 #if defined(LED_GPIO_NUM)
   else if (!strcmp(variable, "led_intensity")) {
@@ -716,9 +721,38 @@ static esp_err_t get_url_handler(httpd_req_t *req) {
   return httpd_resp_send(req, serverUrl.c_str(), serverUrl.length());
 }
 
+static esp_err_t set_led_handler(httpd_req_t *req) {
+  char *buf = NULL;
+  char val_str[16];
+  bool newState = !getLedsFijos();
+
+  if (parse_get(req, &buf) == ESP_OK) {
+    if (httpd_query_key_value(buf, "val", val_str, sizeof(val_str)) == ESP_OK) {
+      newState = (atoi(val_str) == 1);
+    }
+    free(buf);
+  }
+
+  setLedsFijos(newState);
+
+  char resp[32];
+  snprintf(resp, sizeof(resp), "{\"leds\":%d}", newState ? 1 : 0);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, resp, strlen(resp));
+}
+
+static esp_err_t get_led_handler(httpd_req_t *req) {
+  char resp[32];
+  snprintf(resp, sizeof(resp), "{\"leds\":%d}", getLedsFijos() ? 1 : 0);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, resp, strlen(resp));
+}
+
 void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 20;
+  config.max_uri_handlers = 24;
 
   httpd_uri_t index_uri = {
     .uri = "/",
@@ -894,6 +928,22 @@ void startCameraServer() {
       .user_ctx = NULL
     };
     httpd_register_uri_handler(camera_httpd, &get_url_uri);
+
+    httpd_uri_t set_led_uri = {
+      .uri = "/set_led",
+      .method = HTTP_GET,
+      .handler = set_led_handler,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(camera_httpd, &set_led_uri);
+
+    httpd_uri_t get_led_uri = {
+      .uri = "/get_led_status",
+      .method = HTTP_GET,
+      .handler = get_led_handler,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(camera_httpd, &get_led_uri);
   }
 
   config.server_port += 1;

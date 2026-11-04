@@ -567,6 +567,37 @@ async def serve_home():
         return FileResponse(INDEX_HTML_PATH)
     return HTMLResponse("<h1>Banco Biométrico Online</h1><p>Archivo templates/index.html no encontrado.</p>")
 
+# =====================================================================
+# SIMULACIÓN DE ENDPOINTS NATIVOS DEL ESP32 PARA EL PREVIEW WEB
+# =====================================================================
+mock_esp32_leds = False
+mock_server_url = "https://level-old-writes-navigate.trycloudflare.com/upload"
+
+@app.get("/get_led_status")
+async def mock_get_led():
+    global mock_esp32_leds
+    return {"leds": 1 if mock_esp32_leds else 0}
+
+@app.get("/set_led")
+async def mock_set_led(val: Optional[int] = None):
+    global mock_esp32_leds
+    if val is not None:
+        mock_esp32_leds = (val == 1)
+    else:
+        mock_esp32_leds = not mock_esp32_leds
+    return {"leds": 1 if mock_esp32_leds else 0}
+
+@app.get("/get_server_url")
+async def mock_get_server_url():
+    global mock_server_url
+    return PlainTextResponse(mock_server_url)
+
+@app.get("/set_server_url")
+async def mock_set_server_url(url: str):
+    global mock_server_url
+    mock_server_url = url
+    return PlainTextResponse(f"OK: {url}")
+
 @app.get("/esp32-cam", response_class=FileResponse)
 async def serve_esp32_cam():
     """Sirve la interfaz web local del sensor ESP32-CAM (OV2640)."""

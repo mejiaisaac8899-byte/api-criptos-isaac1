@@ -611,6 +611,21 @@
         </div>
       </div>
 
+      <!-- Card: Control de Iluminación y LEDs de Prueba -->
+      <div class="card" style="border: 1px solid rgba(245, 158, 11, 0.45); background: linear-gradient(180deg, #18233d, #141f36); box-shadow: 0 4px 20px rgba(0,0,0,0.35);">
+        <div class="card-title" style="color: #fbbf24;">
+          <svg viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg>
+          Prueba de Hardware: LEDs Fijos
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom: 0.8rem; line-height: 1.4;">
+          Activa el transistor BJT (GPIO 2) para dejar los LEDs infrarrojos encendidos de forma fija. Ideal para calibrar el enfoque de la lente, comprobar la red vascular en vivo o medir voltajes con multímetro.
+        </div>
+        <button id="btn-toggle-led" class="btn" style="background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24; font-weight: 700; width: 100%; padding: 0.85rem; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 0.6rem; transition: all 0.25s ease;">
+          <span id="led-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
+          <span id="led-btn-text">💡 Encender LEDs Fijos</span>
+        </button>
+      </div>
+
     </div>
 
     <!-- RIGHT COLUMN: Optical & Sensor Settings -->
@@ -1021,6 +1036,57 @@
 
       const serverUrlInput = document.getElementById('server-url-input');
       const btnSaveUrl = document.getElementById('btn-save-url');
+
+      const btnToggleLed = document.getElementById('btn-toggle-led');
+      const ledIndicator = document.getElementById('led-indicator');
+      const ledBtnText = document.getElementById('led-btn-text');
+      let isLedOn = false;
+
+      function updateLedUI(active) {
+        isLedOn = active;
+        if (active) {
+          btnToggleLed.style.background = 'linear-gradient(135deg, #d97706, #b45309)';
+          btnToggleLed.style.color = '#ffffff';
+          btnToggleLed.style.border = '1px solid #fbbf24';
+          btnToggleLed.style.boxShadow = '0 0 20px rgba(245, 158, 11, 0.6)';
+          ledIndicator.style.background = '#34d399';
+          ledIndicator.style.boxShadow = '0 0 8px #34d399';
+          ledBtnText.innerText = '🔆 Apagar LEDs (Modo Prueba ACTIVO)';
+        } else {
+          btnToggleLed.style.background = 'rgba(245, 158, 11, 0.15)';
+          btnToggleLed.style.color = '#fbbf24';
+          btnToggleLed.style.border = '1px solid #f59e0b';
+          btnToggleLed.style.boxShadow = 'none';
+          ledIndicator.style.background = '#64748b';
+          ledIndicator.style.boxShadow = 'none';
+          ledBtnText.innerText = '💡 Encender LEDs Fijos';
+        }
+      }
+
+      // Consultar estado de los LEDs al cargar
+      fetch(`${baseHost}/get_led_status`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data.leds !== 'undefined') {
+            updateLedUI(data.leds === 1);
+          }
+        })
+        .catch(err => console.log('Error fetching LED status:', err));
+
+      btnToggleLed.onclick = () => {
+        const targetState = isLedOn ? 0 : 1;
+        fetch(`${baseHost}/set_led?val=${targetState}`)
+          .then(res => res.json())
+          .then(data => {
+            const active = data.leds === 1;
+            updateLedUI(active);
+            showToast(active ? "💡 LEDs Infrarrojos ENCENDIDOS (Fijos)" : "🌑 LEDs Infrarrojos APAGADOS");
+          })
+          .catch(err => {
+            updateLedUI(targetState === 1);
+            showToast(targetState === 1 ? "💡 LEDs Infrarrojos ENCENDIDOS" : "🌑 LEDs Infrarrojos APAGADOS");
+          });
+      };
 
       let isStreaming = false;
       let toastTimeout = null;
